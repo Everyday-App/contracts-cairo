@@ -2,6 +2,19 @@
 version = 1
 
 [[package]]
+name = "everydayapp"
+version = "0.1.0"
+dependencies = [
+ "openzeppelin_access",
+ "openzeppelin_merkle_tree",
+ "openzeppelin_security",
+ "openzeppelin_token",
+ "pragma_lib",
+ "sncast_std",
+ "snforge_std",
+]
+
+[[package]]
 name = "openzeppelin"
 version = "2.0.0"
 source = "registry+https://scarbs.xyz/"
@@ -146,17 +159,4 @@ source = "registry+https://scarbs.xyz/"
 checksum = "sha256:17bc65b0abfb9b174784835df173f9c81c9ad39523dba760f30589ef53cf8bb5"
 dependencies = [
  "snforge_scarb_plugin",
-]
-
-[[package]]
-name = "testing"
-version = "0.1.0"
-dependencies = [
- "openzeppelin_access",
- "openzeppelin_merkle_tree",
- "openzeppelin_security",
- "openzeppelin_token",
- "pragma_lib",
- "sncast_std",
- "snforge_std",
 ]
