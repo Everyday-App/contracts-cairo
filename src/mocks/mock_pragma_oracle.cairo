@@ -18,12 +18,12 @@ pub mod MockOracle {
 
     #[abi(embed_v0)]
     impl IMockOracleImpl of super::IMockOracle<ContractState> {
-        /// @notice Returns a fixed mocked price of STRK/USD as $0.14 (14,000,000 with 8 decimals)
-        /// @dev This is a mock implementation for testing purposes only.
+        // @notice Returns a fixed mocked price of STRK/USD as $0.20 (20,000,000 with 8 decimals)
+        // @dev This is a mock implementation for testing purposes only.
         fn get_data_median(self: @ContractState, data_type: DataType) -> PragmaPricesResponse {
             let timestamp = get_block_timestamp();
             PragmaPricesResponse {
-                price: 14000000,
+                price: 20000000,
                 decimals: 8,
                 last_updated_timestamp: timestamp,
                 num_sources_aggregated: 5,
