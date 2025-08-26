@@ -1,6 +1,6 @@
 use starknet::ContractAddress;
 
-/// Interface for the Price Converter contract using Pragma Oracle
+// Interface for the Price Converter contract using Pragma Oracle
 #[starknet::interface]
 pub trait IPriceConverter<TContractState> {
     fn get_strk_usd_price(self: @TContractState) -> (u128, u8);
@@ -13,9 +13,10 @@ pub trait IPriceConverter<TContractState> {
     ) -> (u128, u128);
     fn get_pragma_address(self: @TContractState) -> ContractAddress;
     fn set_pragma_address(ref self: TContractState, new_address: ContractAddress);
+    fn get_owner(self: @TContractState) -> ContractAddress;
 }
 
-/// Price Converter contract using Pragma Oracle
+// Price Converter contract using Pragma Oracle
 #[starknet::contract]
 pub mod PriceConverter {
     use pragma_lib::abi::{IPragmaABIDispatcher, IPragmaABIDispatcherTrait};
@@ -24,7 +25,7 @@ pub mod PriceConverter {
     use starknet::{ContractAddress, get_caller_address};
 
     const STRK_USD_PAIR_ID: felt252 = 'STRK/USD'; // Pragma pair identifier
-    const PRAGMA_DECIMALS: u8 = 8; // Pragma returns 8 decimals
+    const PRAGMA_DECIMALS: u8 = 8; // Pragma Oracle returns 8 decimals 
     const PRECISION: u256 = 1000000000000000000; // 1e18 for calculations
 
     #[storage]
@@ -74,10 +75,14 @@ pub mod PriceConverter {
             // Validate price data
             assert(output.price > 0, 'Invalid price data');
 
-            // Validate price is not stale (updated within last hour)
+            // Validate price is not stale
             let current_time = starknet::get_block_timestamp();
-            assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
 
+            // Safe staleness check - prevents underflow
+            if current_time >= output.last_updated_timestamp {
+                assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
+            }
+            // If oracle timestamp is in future (small clock drift), treat as fresh
             (output.price, PRAGMA_DECIMALS)
         }
 
@@ -94,8 +99,12 @@ pub mod PriceConverter {
 
             // Validate price is not stale
             let current_time = starknet::get_block_timestamp();
-            assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
 
+            // Safe staleness check - prevents underflow
+            if current_time >= output.last_updated_timestamp {
+                assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
+            }
+            // If oracle timestamp is in future (small clock drift), treat as fresh
             (output.price, output.last_updated_timestamp, PRAGMA_DECIMALS)
         }
 
@@ -127,10 +136,6 @@ pub mod PriceConverter {
             (strk_value.low, strk_value.high)
         }
 
-        fn get_pragma_address(self: @ContractState) -> ContractAddress {
-            self.pragma_oracle.read()
-        }
-
         fn set_pragma_address(ref self: ContractState, new_address: ContractAddress) {
             self._assert_only_owner();
             let old_address = self.pragma_oracle.read();
@@ -144,6 +149,14 @@ pub mod PriceConverter {
                         },
                     ),
                 );
+        }
+
+        fn get_pragma_address(self: @ContractState) -> ContractAddress {
+            self.pragma_oracle.read()
+        }
+
+        fn get_owner(self: @ContractState) -> ContractAddress {
+            self.owner.read()
         }
     }
 
