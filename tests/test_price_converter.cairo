@@ -42,7 +42,7 @@ mod tests {
         let constructor_args_strk_price_converter = array![
             mock_strk_usd_pragma_oracle_address.into(), owner.into()
         ];
-        let (strk_price_convertor_address, _) = price_convertor_class
+        let (strk_price_converter_address, _) = price_convertor_class
             .deploy(@constructor_args_strk_price_converter)
             .unwrap();
 
@@ -55,13 +55,13 @@ mod tests {
             .unwrap();
 
         // Create dispatchers
-        let strk_dispatcher = IPriceConverterDispatcher { contract_address: strk_price_convertor_address };
+        let strk_dispatcher = IPriceConverterDispatcher { contract_address: strk_price_converter_address };
         let eth_dispatcher = IPriceConverterDispatcher { contract_address: eth_price_convertor_address };
 
         (
             strk_dispatcher,
             eth_dispatcher, 
-            strk_price_convertor_address,
+            strk_price_converter_address,
             eth_price_convertor_address,
             mock_strk_usd_pragma_oracle_address,
             mock_eth_usd_pragma_oracle_address
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_get_strk_usd_price() {
-        let (strk_dispatcher, _eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, _eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
 
         let (price, decimals) = strk_dispatcher.get_strk_usd_price();
 
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn test_convert_strk_to_usd() {
-        let (strk_dispatcher, _eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, _eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
 
         // Convert 1 STRK (1e18) to USD
         let strk_amount_low: u128 = ONE_E18; // 1e18
@@ -95,7 +95,7 @@ mod tests {
 
     #[test]
     fn test_convert_usd_to_strk() {
-        let (strk_dispatcher, _eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, _eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
 
         // Convert 1 USD to STRK
         let usd_amount_low: u128 = 200_000_000_000_000_000; // 2e18
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn test_get_pragma_address() {
-        let (strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
         
         // Check STRK converter pragma address
         let strk_pragma_address: ContractAddress = strk_dispatcher.get_pragma_address();
@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_get_owner_address() {
-        let (strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
         let expected_address: ContractAddress = 123.try_into().unwrap();
         
         // Check STRK converter owner
@@ -137,15 +137,15 @@ mod tests {
 
     #[test]
     fn test_set_pragma_address() {
-        let (strk_dispatcher, eth_dispatcher, strk_price_convertor_address, eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, strk_price_converter_address, eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
         let owner: ContractAddress = strk_dispatcher.get_owner();
         let new_pragma_address: ContractAddress = 456.try_into().unwrap();
 
         // Test STRK price converter
-        start_cheat_caller_address(strk_price_convertor_address, owner);
+        start_cheat_caller_address(strk_price_converter_address, owner);
         strk_dispatcher.set_pragma_address(new_pragma_address);
         let strk_pragma_address = strk_dispatcher.get_pragma_address();
-        stop_cheat_caller_address(strk_price_convertor_address);
+        stop_cheat_caller_address(strk_price_converter_address);
         assert(strk_pragma_address == new_pragma_address, 'Wrong STRK pragma address');
 
         // Test ETH price converter
@@ -160,19 +160,19 @@ mod tests {
     #[test]
     #[should_panic(expected: ('Owner only',))]
     fn test_set_pragma_address_not_owner() {
-        let (strk_dispatcher, _eth_dispatcher, strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, _eth_dispatcher, strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
         let new_pragma_address: ContractAddress = 456.try_into().unwrap();
         let non_owner: ContractAddress = 789.try_into().unwrap();
 
-        start_cheat_caller_address(strk_price_convertor_address, non_owner);
+        start_cheat_caller_address(strk_price_converter_address, non_owner);
         // This should panic with "Owner only" error
         strk_dispatcher.set_pragma_address(new_pragma_address);
-        stop_cheat_caller_address(strk_price_convertor_address);
+        stop_cheat_caller_address(strk_price_converter_address);
     }
 
     #[test]
     fn test_get_strk_usd_price_with_timestamp() {
-        let (strk_dispatcher, _eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, _eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
         let timestamp: u64 = 1234567890;
 
         start_cheat_block_timestamp(mock_strk_usd_pragma_oracle_address, timestamp);
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_get_eth_usd_price_with_timestamp() {
-        let (_strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
+        let (_strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
         let timestamp: u64 = 1234567890;
 
         start_cheat_block_timestamp(mock_eth_usd_pragma_oracle_address, timestamp);
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_convert_zero_amounts() {
-        let (strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
 
         // Test zero STRK to USD conversion
         let (usd_low, usd_high) = strk_dispatcher.convert_strk_to_usd(0, 0);
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_convert_large_amounts() {
-        let (strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, _mock_strk_usd_pragma_oracle_address, _mock_eth_usd_pragma_oracle_address) = setup();
 
         // Test large STRK amount conversion
         let large_strk_low: u128 = ONE_E18; // 1e18
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn test_constructor_initialization() {
-        let (strk_dispatcher, eth_dispatcher, _strk_price_convertor_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
+        let (strk_dispatcher, eth_dispatcher, _strk_price_converter_address, _eth_price_convertor_address, mock_strk_usd_pragma_oracle_address, mock_eth_usd_pragma_oracle_address) = setup();
         let expected_owner: ContractAddress = 123.try_into().unwrap();
 
         // Verify STRK/USD constructor initialization

@@ -1,1 +1,1 @@
-mod alarm;
+pub mod alarm;

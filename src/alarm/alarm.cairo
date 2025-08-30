@@ -404,7 +404,7 @@ pub mod AlarmContract {
             let price_divisor = _pow_10(decimals.into()); // 10^8 
 
             // The Pragma Oracle provides price with 8 decimals -> price * 10^8
-            The staked amount (ETH token) has 18 decimals
+            // The staked amount (ETH token) has 18 decimals
             // We need to convert the USD value to have 18 decimals for consistency
 
             // Calculation -> (10^18 * 10^8) / 10^8 = 10^18  (USD value with 18 decimals)
