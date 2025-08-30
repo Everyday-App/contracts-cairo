@@ -4,7 +4,14 @@ use starknet::ContractAddress;
 #[starknet::interface]
 pub trait IPriceConverter<TContractState> {
     fn get_strk_usd_price(self: @TContractState) -> (u128, u8);
-    fn get_price_with_timestamp(self: @TContractState) -> (u128, u64, u8);
+    fn get_eth_usd_price(self: @TContractState) -> (u128, u8);
+    fn get_price_with_timestamp(self: @TContractState, pair_id: felt252) -> (u128, u64, u8);
+    fn convert_eth_to_usd(
+        self: @TContractState, eth_amount_low: u128, eth_amount_high: u128,
+    ) -> (u128, u128);
+    fn convert_usd_to_eth(
+        self: @TContractState, usd_amount_low: u128, usd_amount_high: u128,
+    ) -> (u128, u128);
     fn convert_strk_to_usd(
         self: @TContractState, strk_amount_low: u128, strk_amount_high: u128,
     ) -> (u128, u128);
@@ -25,7 +32,8 @@ pub mod PriceConverter {
     use starknet::{ContractAddress, get_caller_address};
 
     const STRK_USD_PAIR_ID: felt252 = 'STRK/USD'; // Pragma pair identifier
-    const PRAGMA_DECIMALS: u8 = 8; // Pragma Oracle returns 8 decimals 
+    const ETH_USD_PAIR_ID: felt252 = 'ETH/USD'; // Pragma pair identifier
+    const PRAGMA_DECIMALS: u8 = 8; // Pragma Oracle returns 8 decimals
     const PRECISION: u256 = 1000000000000000000; // 1e18 for calculations
 
     #[storage]
@@ -64,6 +72,28 @@ pub mod PriceConverter {
 
     #[abi(embed_v0)]
     impl PriceConverterImpl of super::IPriceConverter<ContractState> {
+        fn get_eth_usd_price(self: @ContractState) -> (u128, u8) {
+            let pragma_address = self.pragma_oracle.read();
+            let pragma_dispatcher = IPragmaABIDispatcher { contract_address: pragma_address };
+
+            // Get ETH/USD price from Pragma
+            let output: PragmaPricesResponse = pragma_dispatcher
+                .get_data_median(DataType::SpotEntry(ETH_USD_PAIR_ID));
+
+            // Validate price data
+            assert(output.price > 0, 'Invalid price data');
+
+            // Validate price is not stale
+            let current_time = starknet::get_block_timestamp();
+
+            // Safe staleness check - prevents underflow
+            if current_time >= output.last_updated_timestamp {
+                assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
+            }
+            // If oracle timestamp is in future (small clock drift), treat as fresh
+            (output.price, PRAGMA_DECIMALS)
+        }
+
         fn get_strk_usd_price(self: @ContractState) -> (u128, u8) {
             let pragma_address = self.pragma_oracle.read();
             let pragma_dispatcher = IPragmaABIDispatcher { contract_address: pragma_address };
@@ -86,13 +116,13 @@ pub mod PriceConverter {
             (output.price, PRAGMA_DECIMALS)
         }
 
-        fn get_price_with_timestamp(self: @ContractState) -> (u128, u64, u8) {
+        fn get_price_with_timestamp(self: @ContractState, pair_id: felt252) -> (u128, u64, u8) {
             let pragma_address = self.pragma_oracle.read();
             let pragma_dispatcher = IPragmaABIDispatcher { contract_address: pragma_address };
 
-            // Get STRK/USD price from Pragma
+            // Get pair_id (STRK/USD or ETH/USD) price from Pragma
             let output: PragmaPricesResponse = pragma_dispatcher
-                .get_data_median(DataType::SpotEntry(STRK_USD_PAIR_ID));
+                .get_data_median(DataType::SpotEntry(pair_id));
 
             // Validate price data
             assert(output.price > 0, 'Invalid price data');
@@ -106,6 +136,34 @@ pub mod PriceConverter {
             }
             // If oracle timestamp is in future (small clock drift), treat as fresh
             (output.price, output.last_updated_timestamp, PRAGMA_DECIMALS)
+        }
+
+        fn convert_eth_to_usd(
+            self: @ContractState, eth_amount_low: u128, eth_amount_high: u128,
+        ) -> (u128, u128) {
+            let (price, decimals) = self.get_eth_usd_price();
+            let price_u256: u256 = price.into();
+
+            // Reconstruct u256 from low and high parts
+            let eth_amount = u256 { low: eth_amount_low, high: eth_amount_high };
+
+            // Convert ETH to USD: (eth_amount * price) / 10^decimals
+            let usd_value = (eth_amount * price_u256) / super::_pow_10(decimals.into());
+            (usd_value.low, usd_value.high)
+        }
+
+        fn convert_usd_to_eth(
+            self: @ContractState, usd_amount_low: u128, usd_amount_high: u128,
+        ) -> (u128, u128) {
+            let (price, decimals) = self.get_eth_usd_price();
+            let price_u256: u256 = price.into();
+
+            // Reconstruct u256 from low and high parts
+            let usd_amount = u256 { low: usd_amount_low, high: usd_amount_high };
+
+            // Convert USD to ETH: (usd_amount * 10^decimals) / price
+            let eth_value = (usd_amount * super::_pow_10(decimals.into())) / price_u256;
+            (eth_value.low, eth_value.high)
         }
 
         fn convert_strk_to_usd(
