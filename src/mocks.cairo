@@ -1,1 +1,2 @@
-pub mod mock_pragma_oracle;
+pub mod mock_strk_usd_pragma_oracle;
+pub mod mock_eth_usd_pragma_oracle;
