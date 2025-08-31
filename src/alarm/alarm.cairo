@@ -33,6 +33,7 @@ mod AlarmContractErrors {
     pub const ALARM_ALREADY_EXISTS_IN_POOL: felt252 = 'Alarm_Already_Exists_In_Pool';
     pub const INVALID_STAKE_AMOUNT: felt252 = 'Invalid_Stake_Amount';
     pub const INVALID_WAKEUP_TIME: felt252 = 'Invalid_WakeUp_Time';
+    pub const WAKEUP_TIME_NOT_REACHED: felt252 = 'WakeUp_Time_Not_Reached'; 
     pub const INVALID_POOL: felt252 = 'Invalid_Pool';
     pub const INVALID_MERKLE_ROOT: felt252 = 'Invalid_Merkle_Root';
     pub const INVALID_SIGNATURE: felt252 = 'Invalid_Signature';
@@ -88,6 +89,7 @@ pub mod AlarmContract {
         #[default]
         Inactive,
         Active,
+        Completed
     }
 
     #[derive(Copy, Drop, starknet::Store, Serde)]
@@ -162,7 +164,11 @@ pub mod AlarmContract {
     #[derive(Drop, starknet::Event)]
     pub struct MerkleRootSet {
         #[key]
-        pub merkle_root: felt252,
+        pub merkle_root: felt252, // add more info about pool and day
+        #[key]
+        pub day: u64,
+        #[key]
+        pub period: u8, // 0 -> AM, 1 -> PM
     }
 
     #[derive(Drop, starknet::Event)]
@@ -174,10 +180,10 @@ pub mod AlarmContract {
     #[constructor]
     fn constructor(
         ref self: ContractState,
-        owner: ContractAddress,
-        verified_signer: ContractAddress,
-        token: ContractAddress,
-        price_converter: ContractAddress,
+        owner: ContractAddress, // Address of the contract owner
+        verified_signer: ContractAddress, // Address of the verified signer
+        token: ContractAddress, // Address of the ERC20 token used for staking
+        price_converter: ContractAddress, // Address of the price converter contract
     ) {
         assert(!owner.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
         assert(!token.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
@@ -258,15 +264,17 @@ pub mod AlarmContract {
         ) {
             self.reentrancy_guard.start();
 
+            assert(get_block_timestamp() >= wakeup_time, AlarmContractErrors::WAKEUP_TIME_NOT_REACHED);
+            
             let day: u64 = (wakeup_time / ONE_DAY_IN_SECONDS);
             let period_in_u64: u64 = ((wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
             let period: u8 = period_in_u64.try_into().unwrap();
-            let user = get_caller_address();
+            let claimer = get_caller_address();
 
-            let alarm = self.user_alarms.read((user, day, period));
+            let alarm = self.user_alarms.read((claimer, day, period));
 
             // Only the alarm owner can claim their own winnings
-            assert(alarm.user == user, AlarmContractErrors::NOT_ALARM_OWNER);
+            assert(alarm.user == claimer, AlarmContractErrors::NOT_ALARM_OWNER);
 
             // Perform initial checks
             self._validate_claim_preconditions(alarm, day, period);
@@ -288,20 +296,25 @@ pub mod AlarmContract {
             }
 
             // Mark the user as having claimed winnings for this day and period
-            self.user_has_claimed_winnings.write((user, day, period), true);
+            self.user_has_claimed_winnings.write((claimer, day, period), true);
+
+            // Update alarm status to Completed
+            let mut updated_alarm = alarm;
+            updated_alarm.status = Status::Completed;
+            self.user_alarms.write((claimer, day, period), updated_alarm);
 
             let total_payout: u256 = amount_to_return + reward_amount;
             if (total_payout > 0) {
-                // Transfer the total payout to the user
+                // Transfer the total payout to the claimer
                 let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
-                let success: bool = token_dispatcher.transfer(user, total_payout);
+                let success: bool = token_dispatcher.transfer(claimer, total_payout);
                 assert(success, AlarmContractErrors::TRANSFER_FAILED);
             }
             self
                 .emit(
                     Event::WinningsClaimed(
                         WinningsClaimed {
-                            user: user,
+                            user: claimer,
                             wakeup_time: wakeup_time,
                             snooze_count: snooze_count,
                             winnings_amount: total_payout,
@@ -338,7 +351,7 @@ pub mod AlarmContract {
                     },
                 );
 
-            self.emit(Event::MerkleRootSet(MerkleRootSet { merkle_root: reward_merkle_root }));
+            self.emit(Event::MerkleRootSet(MerkleRootSet { merkle_root: reward_merkle_root, day: day, period: period }) );
         }
 
         fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool) {
@@ -359,6 +372,7 @@ pub mod AlarmContract {
             let alarm_status: felt252 = match alarm.status {
                 Status::Inactive => 'Inactive',
                 Status::Active => 'Active',
+                Status::Completed => 'Completed',
             };
 
             (alarm.stake_amount, alarm.wakeup_time, alarm_status)
@@ -400,14 +414,16 @@ pub mod AlarmContract {
             // Get ETH/USD price and its decimals
             let (eth_usd_price, decimals) = price_converter.get_eth_usd_price();
             let price_u256: u256 = eth_usd_price.into();
+            assert(price_u256 > 0, 'Price must be positive');
 
             let price_divisor = _pow_10(decimals.into()); // 10^8 
+            assert(price_divisor > 0, 'Price divisor cannot be zero');
 
             // The Pragma Oracle provides price with 8 decimals -> price * 10^8
             // The staked amount (ETH token) has 18 decimals
             // We need to convert the USD value to have 18 decimals for consistency
 
-            // Calculation -> (10^18 * 10^8) / 10^8 = 10^18  (USD value with 18 decimals)
+            // Calculation -> (ETH_amount_18_decimals * USD_price_8_decimals) / 10^8 = USD_value_18_decimals
             let usd_value: u256 = (stake_amount * price_u256) / (price_divisor);
 
             // Return the USD value with 18 decimals
@@ -438,7 +454,14 @@ pub mod AlarmContract {
             let caller = get_caller_address();
             let verified_signer = self.verified_signer.read();
 
+            // Input validation
+            assert(!verified_signer.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+            assert(signature_r != 0, AlarmContractErrors::INVALID_SIGNATURE);
+            assert(signature_s != 0, AlarmContractErrors::INVALID_SIGNATURE);
+            assert(snooze_count >= 0, 'Invalid snooze count');
+
             // Create message hash using Poseidon (STARK-native hashing)
+            // Message Hash: [caller, wakeup_time, snooze_count]
             let mut message_data = ArrayTrait::new();
             message_data.append(caller.into());
             message_data.append(wakeup_time.into());
