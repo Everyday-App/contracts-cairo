@@ -11,7 +11,7 @@ pub trait IAlarmContract<TContractState> {
         reward_amount: u256,
         merkle_proof: Array<felt252>,
     );
-    fn set_verified_signer(ref self: TContractState, new_signer: ContractAddress);
+    fn set_verified_signer(ref self: TContractState, new_signer: felt252);
     fn set_reward_merkle_root(
         ref self: TContractState, day: u64, period: u8, reward_merkle_root: felt252,
     );
@@ -23,7 +23,7 @@ pub trait IAlarmContract<TContractState> {
         self: @TContractState, user: ContractAddress, day: u64, period: u8,
     ) -> bool;
     fn get_owner(self: @TContractState) -> starknet::ContractAddress;
-    fn get_verified_signer(self: @TContractState) -> starknet::ContractAddress;
+    fn get_verified_signer(self: @TContractState) -> felt252;
     fn get_merkle_root(self: @TContractState, day: u64, period: u8) -> felt252;
     fn get_minimum_stake_amount(self: @TContractState) -> u256;
 }
@@ -34,6 +34,7 @@ mod AlarmContractErrors {
     pub const INVALID_STAKE_AMOUNT: felt252 = 'Invalid_Stake_Amount';
     pub const INVALID_WAKEUP_TIME: felt252 = 'Invalid_WakeUp_Time';
     pub const WAKEUP_TIME_NOT_REACHED: felt252 = 'WakeUp_Time_Not_Reached'; 
+    pub const INVALID_PUBLIC_KEY: felt252 = 'Invalid_Public_Key';
     pub const INVALID_POOL: felt252 = 'Invalid_Pool';
     pub const INVALID_MERKLE_ROOT: felt252 = 'Invalid_Merkle_Root';
     pub const INVALID_SIGNATURE: felt252 = 'Invalid_Signature';
@@ -108,8 +109,8 @@ pub mod AlarmContract {
 
     #[storage]
     struct Storage {
-        // Address of the verified signer
-        verified_signer: ContractAddress,
+        // Public key of the verified signer
+        verified_signer: felt252,
         // Address of the ERC20 token used for staking
         token: ContractAddress,
         // Price converter contract address
@@ -174,20 +175,20 @@ pub mod AlarmContract {
     #[derive(Drop, starknet::Event)]
     pub struct VerifiedSignerSet {
         #[key]
-        pub verified_signer: ContractAddress,
+        pub verified_signer: felt252,
     }
 
     #[constructor]
     fn constructor(
         ref self: ContractState,
         owner: ContractAddress, // Address of the contract owner
-        verified_signer: ContractAddress, // Address of the verified signer
+        verified_signer: felt252, // Public key of the verified signer
         token: ContractAddress, // Address of the ERC20 token used for staking
         price_converter: ContractAddress, // Address of the price converter contract
     ) {
         assert(!owner.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
         assert(!token.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
-        assert(!verified_signer.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+        assert(!verified_signer.is_zero(), AlarmContractErrors::INVALID_PUBLIC_KEY);
         assert(!price_converter.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
         self.ownable.initializer(owner);
         self.verified_signer.write(verified_signer);
@@ -324,9 +325,9 @@ pub mod AlarmContract {
             self.reentrancy_guard.end();
         }
 
-        fn set_verified_signer(ref self: ContractState, new_signer: ContractAddress) {
+        fn set_verified_signer(ref self: ContractState, new_signer: felt252) {
             self.ownable.assert_only_owner();
-            assert(!new_signer.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+            assert(!new_signer.is_zero(), AlarmContractErrors::INVALID_PUBLIC_KEY);
             self.verified_signer.write(new_signer);
             self.emit(Event::VerifiedSignerSet(VerifiedSignerSet { verified_signer: new_signer }));
         }
@@ -389,7 +390,7 @@ pub mod AlarmContract {
             self.ownable.owner()
         }
 
-        fn get_verified_signer(self: @ContractState) -> ContractAddress {
+        fn get_verified_signer(self: @ContractState) -> felt252 {
             self.verified_signer.read()
         }
 
@@ -455,7 +456,7 @@ pub mod AlarmContract {
             let verified_signer = self.verified_signer.read();
 
             // Input validation
-            assert(!verified_signer.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+            assert(!verified_signer.is_zero(), AlarmContractErrors::INVALID_PUBLIC_KEY);
             assert(signature_r != 0, AlarmContractErrors::INVALID_SIGNATURE);
             assert(signature_s != 0, AlarmContractErrors::INVALID_SIGNATURE);
             assert(snooze_count >= 0, 'Invalid snooze count');
@@ -470,10 +471,9 @@ pub mod AlarmContract {
             let message_hash = poseidon_hash_span(message_data.span());
 
             // Verify STARK curve signature
-            let verified_signer_felt: felt252 = verified_signer.into();
             let is_valid = check_ecdsa_signature(
                 message_hash,
-                verified_signer_felt, // Public key (x-coordinate)
+                verified_signer, // Public key 
                 signature_r,
                 signature_s,
             );
