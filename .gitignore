@@ -4,3 +4,6 @@ snfoundry_trace/
 coverage/
 profile/
 .env
+node_modules/
+test-account_account.json
+test-account_keystore.json

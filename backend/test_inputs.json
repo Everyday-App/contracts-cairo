@@ -1,0 +1,22 @@
+{
+  "pool_info": {
+    "day": 50,
+    "period": 0,
+    "contract_address": "0x1234567890abcdef",
+    "verifier_private_key": "0x02a49cbb553b2b8d8ba20b3c9981ece2f4148f987f0665344e06e641a88f3cf5"
+  },
+  "users": [
+    {
+      "address": "0x04b30350238863e574f135c84b48f860be87c90afc37843709b4613aab32f018",
+      "wake_up_time": "4323600",
+      "snooze_count": 0,
+      "stake_amount": "3000000000000000000"
+    },
+    {
+      "address": "0x068e5011bbef90f8227382ea517277b631339205af237d5e853573248fc726a4",
+      "wake_up_time": "4327200",
+      "snooze_count": 1,
+      "stake_amount": "2000000000000000000"
+    }
+  ]
+}
