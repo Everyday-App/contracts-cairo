@@ -1,0 +1,22 @@
+{
+    "name": "alarm-backend",
+    "version": "1.0.0",
+    "description": "Backend for generating signatures and merkle proofs for the alarm contract",
+    "main": "alarm_backend.js",
+    "scripts": {
+        "start": "node alarm_backend.js",
+        "test": "node test_backend.js"
+    },
+    "dependencies": {
+        "starknet": "^7.6.4"
+    },
+    "keywords": [
+        "starknet",
+        "cairo",
+        "blockchain",
+        "signatures",
+        "merkle"
+    ],
+    "author": "EverydayApp",
+    "license": "MIT"
+}
