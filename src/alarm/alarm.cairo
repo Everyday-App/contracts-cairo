@@ -15,7 +15,7 @@ pub trait IAlarmContract<TContractState> {
     fn set_reward_merkle_root(
         ref self: TContractState, day: u64, period: u8, reward_merkle_root: felt252,
     );
-    fn get_pool_info(self: @TContractState, day: u64, period: u8) -> (felt252, bool);
+    fn get_pool_info(self: @TContractState, day: u64, period: u8) -> (felt252, bool, u256, u64);
     fn get_user_alarm(
         self: @TContractState, user: ContractAddress, day: u64, period: u8,
     ) -> (u256, u64, felt252);
@@ -96,7 +96,9 @@ pub mod AlarmContract {
     #[derive(Copy, Drop, starknet::Store, Serde)]
     pub struct Pool {
         pub reward_merkle_root: felt252, // Merkle root for the reward distribution
-        pub is_finalized: bool // Indicates if the pool is finalized
+        pub is_finalized: bool, // Indicates if the pool is finalized
+        pub total_staked: u256, // Total amount staked in this pool
+        pub user_count: u64, // Number of users who have set alarms in this pool
     }
 
     #[derive(Copy, Drop, starknet::Store, Serde)]
@@ -237,6 +239,12 @@ pub mod AlarmContract {
             // Store the new alarm in the user_alarms mapping
             self.user_alarms.write((user, day, period), new_user_alarm);
 
+            // Update staked amount & user count in the pool 
+            let mut pool = self.pools.read((day, period));
+            pool.total_staked += stake_amount;
+            pool.user_count += 1;
+            self.pools.write((day, period), pool);
+
             // transfer stake amount from user to contract
             let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
 
@@ -342,25 +350,30 @@ pub mod AlarmContract {
             // Ensure merkle root is not zero
             assert(reward_merkle_root != 0, AlarmContractErrors::INVALID_MERKLE_ROOT);
 
+            // Get existing pool data to preserve total_staked and user_count
+            let existing_pool = self.pools.read((day, period));
+
             self
                 .pools
                 .write(
                     (day, period),
                     Pool {
                         reward_merkle_root: reward_merkle_root,
-                        is_finalized: true // Set the pool as finalized
+                        is_finalized: true, // Set the pool as finalized
+                        total_staked: existing_pool.total_staked,
+                        user_count: existing_pool.user_count,
                     },
                 );
 
             self.emit(Event::MerkleRootSet(MerkleRootSet { merkle_root: reward_merkle_root, day: day, period: period }) );
         }
 
-        fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool) {
+        fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool, u256, u64) {
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
 
             let pool = self.pools.read((day, period));
 
-            (pool.reward_merkle_root, pool.is_finalized)
+            (pool.reward_merkle_root, pool.is_finalized, pool.total_staked, pool.user_count)
         }
 
         fn get_user_alarm(
