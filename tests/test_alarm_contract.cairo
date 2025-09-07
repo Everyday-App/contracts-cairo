@@ -248,7 +248,7 @@ mod tests {
         assert(loser_s != 0, 'Loser signature s != 0');
         
         // Verify other test data
-        assert(merkle_root != 0, 'Merkle root should not be zero');
+        assert(merkle_root != 0, 'Merkle root != 0');
         assert(reward_amount > 0, 'Reward amount should be > 0');
     }
 
@@ -550,7 +550,7 @@ mod tests {
         let merkle_root: felt252 = 'test_merkle_root_123';
         
         // Verify initial pool state
-        let (initial_root, initial_finalized) = alarm_dispatcher.get_pool_info(day, period);
+        let (initial_root, initial_finalized, _initial_total_staked, _initial_user_count) = alarm_dispatcher.get_pool_info(day, period);
         assert(initial_root == 0, 'Initial root should be 0');
         assert(!initial_finalized, 'Pool not finalized initially');
         
@@ -561,7 +561,7 @@ mod tests {
         alarm_dispatcher.set_reward_merkle_root(day, period, merkle_root);
         
         // Verify the merkle root was set and pool finalized
-        let (updated_root, updated_finalized) = alarm_dispatcher.get_pool_info(day, period);
+        let (updated_root, updated_finalized, _updated_total_staked, _updated_user_count) = alarm_dispatcher.get_pool_info(day, period);
         assert(updated_root == merkle_root, 'Merkle root not set');
         assert(updated_finalized, 'Pool should be finalized');
         
@@ -598,7 +598,7 @@ mod tests {
         alarm_dispatcher.set_reward_merkle_root(day, period, merkle_root);
         
         // Verify the merkle root was set
-        let (updated_root, updated_finalized) = alarm_dispatcher.get_pool_info(day, period);
+        let (updated_root, updated_finalized, _updated_total_staked, _updated_user_count) = alarm_dispatcher.get_pool_info(day, period);
         assert(updated_root == merkle_root, 'PM merkle root not set');
         assert(updated_finalized, 'PM pool finalized');
         
@@ -684,8 +684,8 @@ mod tests {
         alarm_dispatcher.set_reward_merkle_root(day, pm_period, pm_merkle_root);
         
         // Verify both merkle roots are set correctly
-        let (am_root, am_finalized) = alarm_dispatcher.get_pool_info(day, am_period);
-        let (pm_root, pm_finalized) = alarm_dispatcher.get_pool_info(day, pm_period);
+        let (am_root, am_finalized, _am_total_staked, _am_user_count) = alarm_dispatcher.get_pool_info(day, am_period);
+        let (pm_root, pm_finalized, _pm_total_staked, _pm_user_count) = alarm_dispatcher.get_pool_info(day, pm_period);
         
         assert(am_root == am_merkle_root, 'AM root not set');
         assert(am_finalized, 'AM pool finalized');
@@ -727,7 +727,7 @@ mod tests {
         alarm_dispatcher.set_reward_merkle_root(day, period, initial_merkle_root);
         
         // Verify initial state
-        let (initial_root, initial_finalized) = alarm_dispatcher.get_pool_info(day, period);
+        let (initial_root, initial_finalized, _initial_total_staked, _initial_user_count) = alarm_dispatcher.get_pool_info(day, period);
         assert(initial_root == initial_merkle_root, 'Initial root not set');
         assert(initial_finalized, 'Pool should be finalized');
         
@@ -735,7 +735,7 @@ mod tests {
         alarm_dispatcher.set_reward_merkle_root(day, period, updated_merkle_root);
         
         // Verify update
-        let (final_root, final_finalized) = alarm_dispatcher.get_pool_info(day, period);
+        let (final_root, final_finalized, _final_total_staked, _final_user_count) = alarm_dispatcher.get_pool_info(day, period);
         assert(final_root == updated_merkle_root, 'Root not updated');
         assert(final_finalized, 'Pool remains not finalized');
         
@@ -793,6 +793,412 @@ mod tests {
         
         // This should panic with "Invalid_Pool"
         alarm_dispatcher.get_merkle_root(day, invalid_period);
+    }
+
+    #[test]
+    fn test_get_pool_info() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
+        
+        let day: u64 = 100;
+        let period: u8 = 0; // AM period
+        
+        // Test initial pool info (should be empty)
+        let (_initial_root, _initial_finalized, initial_total_staked, initial_user_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(initial_total_staked == 0, 'Initial total == 0');
+        assert(initial_user_count == 0, 'Initial user count == 0');
+    }
+
+    #[test]
+    fn test_pool_info_update_single_user() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        // Setup test parameters
+        let user = get_user_address();
+        let current_time: u64 = 1000000;
+        let wakeup_time: u64 = current_time + 86400; // 24 hours in the future
+        let stake_amount: u256 = 5000000000000000000; // 5 ETH
+        
+        // Calculate day and period
+        let day = wakeup_time / 86400;
+        let period_u64 = (wakeup_time % 86400) / 43200;
+        let period: u8 = period_u64.try_into().unwrap();
+        
+        // Check initial pool info
+        let (_initial_root, _initial_finalized, initial_total_staked, initial_user_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(initial_total_staked == 0, 'Initial total staked != 0');
+        assert(initial_user_count == 0, 'Initial user count != 0');
+        
+        // Setup tokens and set alarm
+        start_cheat_block_timestamp(alarm_contract_address, current_time);
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_contract_address, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user);
+        alarm_dispatcher.set_alarm(wakeup_time, stake_amount);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check pool info after setting alarm
+        let (_updated_root, _updated_finalized, updated_total_staked, updated_user_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(updated_total_staked == stake_amount, 'Total staked not updated');
+        assert(updated_user_count == 1, 'User count not updated');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
+    }
+
+    #[test]
+    fn test_pool_info_update_multiple_users() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        let current_time: u64 = 1000000;
+        let base_wakeup_time: u64 = current_time + 86400;
+        
+        // User 1 setup
+        let user1 = get_user_address();
+        let wakeup_time1 = base_wakeup_time + 3600; // Same day/period
+        let stake1: u256 = 3000000000000000000; // 3 ETH
+        
+        // User 2 setup
+        let user2 = get_another_user_address();
+        let wakeup_time2 = base_wakeup_time + 7200; // Same day/period
+        let stake2: u256 = 2000000000000000000; // 2 ETH
+        
+        // Calculate day and period (should be same for both users)
+        let day = wakeup_time1 / 86400;
+        let period_u64 = (wakeup_time1 % 86400) / 43200;
+        let period: u8 = period_u64.try_into().unwrap();
+        
+        start_cheat_block_timestamp(alarm_contract_address, current_time);
+        let owner = get_owner_address();
+        
+        // Setup User 1
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user1, stake1);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user1);
+        token_dispatcher.approve(alarm_contract_address, stake1);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user1);
+        alarm_dispatcher.set_alarm(wakeup_time1, stake1);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check pool info after first user
+        let (_root_after_user1, _finalized_after_user1, total_after_user1, count_after_user1) = alarm_dispatcher.get_pool_info(day, period);
+        assert(total_after_user1 == stake1, 'Wrong total after user1');
+        assert(count_after_user1 == 1, 'Wrong count after user1');
+        
+        // Setup User 2
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user2, stake2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user2);
+        token_dispatcher.approve(alarm_contract_address, stake2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user2);
+        alarm_dispatcher.set_alarm(wakeup_time2, stake2);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check pool info after second user
+        let (_final_root, _final_finalized, final_total, final_count) = alarm_dispatcher.get_pool_info(day, period);
+        let expected_total = stake1 + stake2; // 5 ETH total
+        assert(final_total == expected_total, 'Wrong final total');
+        assert(final_count == 2, 'Wrong final count');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
+    }
+
+    #[test]
+    fn test_pool_info_different_periods() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        let current_time: u64 = 1000000;
+        let base_time: u64 = current_time + 86400;
+        
+        // User 1 - AM period (0-12 hours)
+        let user1 = get_user_address();
+        let wakeup_am = base_time + 3600; // 1 hour after midnight = AM
+        let stake_am: u256 = 3000000000000000000; // 3 ETH
+        
+        // User 2 - PM period (12-24 hours)  
+        let user2 = get_another_user_address();
+        let wakeup_pm = base_time + 50400; // 14 hours after midnight = PM
+        let stake_pm: u256 = 2000000000000000000; // 2 ETH
+        
+        let day = base_time / 86400;
+        let am_period: u8 = 0;
+        let pm_period: u8 = 1;
+        
+        start_cheat_block_timestamp(alarm_contract_address, current_time);
+        let owner = get_owner_address();
+        
+        // Setup AM user
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user1, stake_am);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user1);
+        token_dispatcher.approve(alarm_contract_address, stake_am);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user1);
+        alarm_dispatcher.set_alarm(wakeup_am, stake_am);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Setup PM user
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user2, stake_pm);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user2);
+        token_dispatcher.approve(alarm_contract_address, stake_pm);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user2);
+        alarm_dispatcher.set_alarm(wakeup_pm, stake_pm);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check AM pool info
+        let (_am_root, _am_finalized, am_total, am_count) = alarm_dispatcher.get_pool_info(day, am_period);
+        assert(am_total == stake_am, 'Wrong AM total');
+        assert(am_count == 1, 'Wrong AM count');
+        
+        // Check PM pool info
+        let (_pm_root, _pm_finalized, pm_total, pm_count) = alarm_dispatcher.get_pool_info(day, pm_period);
+        assert(pm_total == stake_pm, 'Wrong PM total');
+        assert(pm_count == 1, 'Wrong PM count');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
+    }
+
+    #[test]
+    fn test_get_pool_info_before_and_after_set_alarm() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        let day: u64 = 200;
+        let period: u8 = 0;
+        let user = get_user_address();
+        let stake_amount: u256 = 4000000000000000000; // 4 ETH
+        let current_time: u64 = day * 86400 + 1000; // Within the day
+        let wakeup_time: u64 = current_time + 3600; // 1 hour later
+        let merkle_root: felt252 = 'test_root';
+        
+        // Initial state - pool should be empty and not finalized
+        let (initial_root, initial_finalized, initial_total, initial_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(initial_root == 0, 'Initial root should be 0');
+        assert(!initial_finalized, 'Should not be finalized');
+        assert(initial_total == 0, 'Initial total should be 0');
+        assert(initial_count == 0, 'Initial count should be 0');
+        
+        // Add a user to the pool
+        start_cheat_block_timestamp(alarm_contract_address, current_time);
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_contract_address, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user);
+        alarm_dispatcher.set_alarm(wakeup_time, stake_amount);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check pool state after adding user - should have info but no merkle root
+        let (mid_root, mid_finalized, mid_total, mid_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(mid_root == 0, 'Root should still be 0');
+        assert(!mid_finalized, 'Should not be finalized yet');
+        assert(mid_total == stake_amount, 'Total should match stake');
+        assert(mid_count == 1, 'Count should be 1');
+        
+        // Finalize the pool by setting merkle root
+        start_cheat_caller_address(alarm_contract_address, owner);
+        alarm_dispatcher.set_reward_merkle_root(day, period, merkle_root);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check final state - should preserve info and be finalized
+        let (final_root, final_finalized, final_total, final_count) = alarm_dispatcher.get_pool_info(day, period);
+        assert(final_root == merkle_root, 'Root should be set');
+        assert(final_finalized, 'Should be finalized');
+        assert(final_total == stake_amount, 'Total should be preserved');
+        assert(final_count == 1, 'Count should be preserved');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
+    }
+
+    // ==================== GETTER FUNCTION TESTS ====================
+
+    #[test]
+    fn test_get_user_alarm_all_states() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        let day: u64 = 300;
+        let period: u8 = 0;
+        let current_time: u64 = day * 86400;
+        let wakeup_time: u64 = current_time + 5400; // 1.5 hours into AM period
+        let user = get_user_address();
+        let stake_amount: u256 = 2500000000000000000; // 2.5 ETH
+        
+        // Check initial alarm state (should be inactive)
+        let (initial_stake, initial_wakeup, initial_status) = alarm_dispatcher.get_user_alarm(user, day, period);
+        assert(initial_stake == 0, 'Initial stake should be 0');
+        assert(initial_wakeup == 0, 'Initial wakeup should be 0');
+        assert(initial_status == 'Inactive', 'Initial status Inactive');
+        
+        // Setup and set alarm
+        start_cheat_block_timestamp(alarm_contract_address, current_time);
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_contract_address, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user);
+        alarm_dispatcher.set_alarm(wakeup_time, stake_amount);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check alarm state after setting (should be active)
+        let (active_stake, active_wakeup, active_status) = alarm_dispatcher.get_user_alarm(user, day, period);
+        assert(active_stake == stake_amount, 'Active stake amount wrong');
+        assert(active_wakeup == wakeup_time, 'Active wakeup time wrong');
+        assert(active_status == 'Active', 'Status is Active');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Zero_Address',))]
+    fn test_get_user_alarm_zero_address() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
+        
+        let zero_address: ContractAddress = 0.try_into().unwrap();
+        let day: u64 = 100;
+        let period: u8 = 0;
+        
+        // This should panic with "Zero_Address"
+        alarm_dispatcher.get_user_alarm(zero_address, day, period);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Invalid_Pool',))]
+    fn test_get_user_alarm_invalid_period() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
+        
+        let user = get_user_address();
+        let day: u64 = 100;
+        let invalid_period: u8 = 5;
+        
+        // This should panic with "Invalid_Pool"
+        alarm_dispatcher.get_user_alarm(user, day, invalid_period);
+    }
+
+    #[test]
+    fn test_get_has_claimed_winnings_before_and_after() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
+        
+        let user = get_user_address();
+        let day: u64 = 400;
+        let period: u8 = 1; // PM period
+        
+        // Initial state should be false (not claimed)
+        let initial_claimed = alarm_dispatcher.get_has_claimed_winnings(user, day, period);
+        assert(!initial_claimed, 'Not claimed initially');
+        
+        // Test different users and periods
+        let another_user = get_another_user_address();
+        let another_day: u64 = 401;
+        let another_period: u8 = 0;
+        
+        let another_claimed = alarm_dispatcher.get_has_claimed_winnings(another_user, another_day, another_period);
+        assert(!another_claimed, 'Another user not claimed');
+    }
+
+    #[test]
+    #[should_panic(expected: ('Invalid_Pool',))]
+    fn test_get_has_claimed_winnings_invalid_period() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
+        
+        let user = get_user_address();
+        let day: u64 = 100;
+        let invalid_period: u8 = 3;
+        
+        // This should panic with "Invalid_Pool"
+        alarm_dispatcher.get_has_claimed_winnings(user, day, invalid_period);
+    }
+
+    #[test]
+    fn test_pool_info_across_multiple_days() {
+        let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
+        
+        let user1 = get_user_address();
+        let user2 = get_another_user_address();
+        let stake1: u256 = 3000000000000000000; // 3 ETH
+        let stake2: u256 = 5000000000000000000; // 5 ETH
+        
+        // Day 100, AM period
+        let day1: u64 = 100;
+        let period1: u8 = 0;
+        let time1: u64 = day1 * 86400 + 3600; // 1 hour into day 100
+        
+        // Day 101, PM period  
+        let day2: u64 = 101;
+        let period2: u8 = 1;
+        let time2: u64 = day2 * 86400 + 50400; // 14 hours into day 101 (PM)
+        
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user1, stake1);
+        token_dispatcher.mint(user2, stake2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        // Set alarm for day 100 AM
+        start_cheat_block_timestamp(alarm_contract_address, time1 - 1000);
+        start_cheat_caller_address(token_dispatcher.contract_address, user1);
+        token_dispatcher.approve(alarm_contract_address, stake1);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user1);
+        alarm_dispatcher.set_alarm(time1, stake1);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Set alarm for day 101 PM
+        start_cheat_block_timestamp(alarm_contract_address, time2 - 1000);
+        start_cheat_caller_address(token_dispatcher.contract_address, user2);
+        token_dispatcher.approve(alarm_contract_address, stake2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        start_cheat_caller_address(alarm_contract_address, user2);
+        alarm_dispatcher.set_alarm(time2, stake2);
+        stop_cheat_caller_address(alarm_contract_address);
+        
+        // Check day 100 AM info
+        let (_root1, _finalized1, total1, count1) = alarm_dispatcher.get_pool_info(day1, period1);
+        assert(total1 == stake1, 'Day 100 total wrong');
+        assert(count1 == 1, 'Day 100 count wrong');
+        
+        // Check day 101 PM info
+        let (_root2, _finalized2, total2, count2) = alarm_dispatcher.get_pool_info(day2, period2);
+        assert(total2 == stake2, 'Day 101 total wrong');
+        assert(count2 == 1, 'Day 101 count wrong');
+        
+        // Check other combinations are empty
+        let (_empty_root, _empty_finalized, empty_total, empty_count) = alarm_dispatcher.get_pool_info(day1, period2); // Day 100 PM
+        assert(empty_total == 0, 'Day 100 PM should be empty');
+        assert(empty_count == 0, 'Day 100 PM count should be 0');
+        
+        stop_cheat_block_timestamp(alarm_contract_address);
     }
 
     // ==================== CLAIM WINNINGS PANIC TESTS ====================
@@ -1234,7 +1640,7 @@ mod tests {
         
         // Check initial alarm status (day=50, period=0 for winner)
         let (_stake_amount, _wakeup_time_stored, status) = alarm_dispatcher.get_user_alarm(winner, 50, 0);
-        assert(status == 'Active', 'Initial status should be Active');
+        assert(status == 'Active', 'Status is Active');
         
         start_cheat_block_timestamp(alarm_contract_address, wakeup_time + 1);
         start_cheat_caller_address(alarm_contract_address, winner);
