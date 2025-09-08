@@ -83,14 +83,6 @@ pub mod PriceConverter {
             // Validate price data
             assert(output.price > 0, 'Invalid price data');
 
-            // Validate price is not stale
-            let current_time = starknet::get_block_timestamp();
-
-            // Safe staleness check - prevents underflow
-            if current_time >= output.last_updated_timestamp {
-                assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
-            }
-            // If oracle timestamp is in future (small clock drift), treat as fresh
             (output.price, PRAGMA_DECIMALS)
         }
 
@@ -105,14 +97,6 @@ pub mod PriceConverter {
             // Validate price data
             assert(output.price > 0, 'Invalid price data');
 
-            // Validate price is not stale
-            let current_time = starknet::get_block_timestamp();
-
-            // Safe staleness check - prevents underflow
-            if current_time >= output.last_updated_timestamp {
-                assert(current_time - output.last_updated_timestamp < 3600, 'Price data is stale');
-            }
-            // If oracle timestamp is in future (small clock drift), treat as fresh
             (output.price, PRAGMA_DECIMALS)
         }
 
