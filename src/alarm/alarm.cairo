@@ -209,7 +209,7 @@ pub mod AlarmContract {
             assert(wakeup_time > get_block_timestamp(), AlarmContractErrors::INVALID_WAKEUP_TIME);
 
             // Check if stake amount meets the minimum USD requirement
-            let usd_value: u256 = self._get_eth_usd_value(stake_amount);
+            let usd_value: u256 = self._get_strk_usd_value(stake_amount);
             assert(
                 usd_value >= MINIMUM_STAKE_AMOUNT_IN_USD, AlarmContractErrors::INVALID_STAKE_AMOUNT,
             );
@@ -420,24 +420,24 @@ pub mod AlarmContract {
 
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
-        fn _get_eth_usd_value(self: @ContractState, stake_amount: u256) -> u256 {
+        fn _get_strk_usd_value(self: @ContractState, stake_amount: u256) -> u256 {
             let price_converter = IPriceConverterDispatcher {
                 contract_address: self.price_converter.read(),
             };
 
-            // Get ETH/USD price and its decimals
-            let (eth_usd_price, decimals) = price_converter.get_eth_usd_price();
-            let price_u256: u256 = eth_usd_price.into();
+            // Get STRK/USD price and its decimals
+            let (strk_usd_price, decimals) = price_converter.get_strk_usd_price();
+            let price_u256: u256 = strk_usd_price.into();
             assert(price_u256 > 0, 'Price must be positive');
 
             let price_divisor = _pow_10(decimals.into()); // 10^8 
             assert(price_divisor > 0, 'Price divisor cannot be zero');
 
             // The Pragma Oracle provides price with 8 decimals -> price * 10^8
-            // The staked amount (ETH token) has 18 decimals
+            // The staked amount (STRK token) has 18 decimals
             // We need to convert the USD value to have 18 decimals for consistency
 
-            // Calculation -> (ETH_amount_18_decimals * USD_price_8_decimals) / 10^8 = USD_value_18_decimals
+            // Calculation -> (STRK_amount_18_decimals * USD_price_8_decimals) / 10^8 = USD_value_18_decimals
             let usd_value: u256 = (stake_amount * price_u256) / (price_divisor);
 
             // Return the USD value with 18 decimals
