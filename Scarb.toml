@@ -15,7 +15,7 @@ pragma_lib = "2.11.4"
 # pragma_lib = { git = "https://github.com/astraly-labs/pragma-lib" }
 
 [dev-dependencies]
-snforge_std = "0.43.1"
+snforge_std = "0.50.0"
 assert_macros = "2.12.0"
 sncast_std = "0.33.0"
 

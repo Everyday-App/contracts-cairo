@@ -7,3 +7,4 @@ profile/
 node_modules/
 test-account_account.json
 test-account_keystore.json
+.cursor/
