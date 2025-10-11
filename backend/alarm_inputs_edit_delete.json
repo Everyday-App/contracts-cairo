@@ -1,0 +1,42 @@
+{
+  "pool_info": {
+    "day": "20321",
+    "period": 1,
+    "contract_address": "0x0f1E5a19D34FB93648285F28Eb2b4506e6791EB7",
+    "verifier_private_key": "0x02a49cbb553b2b8d8ba20b3c9981ece2f4148f987f0665344e06e641a88f3cf5"
+  },
+  "users": [
+    {
+      "address": "0x068e5011bbef90f8227382ea517277b631339205af237d5e853573248fc726a4",
+      "wake_up_time": "1755795600",
+      "stake_amount": "50000000000000000000",
+      "snooze_count": 0
+    },
+    {
+      "address": "0x04b30350238863e574f135c84b48f860be87c90afc37843709b4613aab32f018",
+      "wake_up_time": "1755712800",
+      "stake_amount": "50000000000000000000",
+      "snooze_count": 1
+    },
+    {
+      "address": "0x043abd6f2049a4de67a533068dd90336887eab3786864c50e2b2ca8be17de564",
+      "wake_up_time": "1755716400",
+      "stake_amount": "50000000000000000000",
+      "snooze_count": 2
+    },
+    {
+      "address": "0x04e1cd2b21092ceb6999a2480bcc12a8b206867885d14a28aa7a1eb2169b015a",
+      "wake_up_time": "1755720000",
+      "stake_amount": "50000000000000000000",
+      "snooze_count": 3
+    },
+    {
+      "address": "0x07bd8a637e29d94961f31c9561b952069057a5a9cad3179303b9c37710eb2cdd",
+      "wake_up_time": "1755723600",
+      "stake_amount": "50000000000000000000",
+      "snooze_count": 0
+    }
+  ]
+}
+
+

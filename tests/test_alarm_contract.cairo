@@ -95,7 +95,8 @@ mod tests {
             owner.into(), 
             verified_signer.into(), 
             token_address.into(), // Use mock ERC20 token
-            price_converter_address.into()
+            price_converter_address.into(),
+            owner.into(), // protocol_fees_address -> route fees to owner in tests
         ];
         
         // Deploy Alarm Contract
@@ -1950,4 +1951,273 @@ mod tests {
         ]
     }
 
-}
+    // ==================== EDIT/DELETE ALARM TESTS ====================
+
+    #[test]
+    fn test_edit_alarm_updates_balances_and_state() {
+        let (_price_converter, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+
+        // Setup: user sets an alarm
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake_initial: u256 = 50000000000000000000; // 50 STRK
+        let current_time: u64 = 1_000_000;
+        let wakeup_old: u64 = current_time + 86_400; // +1 day
+        start_cheat_block_timestamp(alarm_addr, current_time);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake_initial * 3); // enough for operations
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake_initial);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup_old, stake_initial);
+        stop_cheat_caller_address(alarm_addr);
+
+        // Edit to a new future time with a new stake
+        let new_stake: u256 = 30000000000000000000; // 30 STRK
+        let wakeup_new: u64 = wakeup_old + 3600; // +1h
+
+        // Track balances: contract and owner (protocol fees)
+        let fees_addr = owner; // in tests, we passed owner as fees address
+        let fees_before = token_dispatcher.balance_of(fees_addr);
+        let user_before = token_dispatcher.balance_of(user);
+        let contract_before = token_dispatcher.balance_of(alarm_addr);
+
+        // Approve for new stake
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, new_stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+
+        // Call edit_alarm
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.edit_alarm(wakeup_old, wakeup_new, new_stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        // 20% of old stake slashed to fees, 80% returned; new_stake pulled to contract
+        let fees_after = token_dispatcher.balance_of(fees_addr);
+        let user_after = token_dispatcher.balance_of(user);
+        let contract_after = token_dispatcher.balance_of(alarm_addr);
+
+        let expected_fees_increase: u256 = (stake_initial * 20) / 100; // 10 STRK
+        let expected_user_net_change: u256 = ((stake_initial * 80) / 100) - new_stake; // +40 -30 = +10 STRK
+        let expected_contract_net_change: u256 = new_stake - stake_initial; // 30 - 50 = -20 STRK net
+
+        assert(fees_after == fees_before + expected_fees_increase, 'Fees not 20%');
+        assert(user_after == user_before + expected_user_net_change, 'User refund wrong');
+        assert(contract_after == contract_before + expected_contract_net_change, 'Contract balance wrong');
+
+        // Check alarm moved to new wakeup and stake updated
+        let day_new = wakeup_new / 86400;
+        let period_new_u64 = (wakeup_new % 86400) / 43200;
+        let period_new: u8 = period_new_u64.try_into().unwrap();
+        let (stored_stake, stored_wakeup, status) = alarm_dispatcher.get_user_alarm(user, day_new, period_new);
+        assert(stored_stake == new_stake, 'Edited stake mismatch');
+        assert(stored_wakeup == wakeup_new, 'Edited wakeup mismatch');
+        assert(status == 'Active', 'Edited alarm not Active');
+
+        stop_cheat_block_timestamp(alarm_addr);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Invalid_WakeUp_Time',))]
+    fn test_edit_alarm_rejected_when_time_passed() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake: u256 = 50000000000000000000;
+        let t0: u64 = 1_000_000;
+        let wakeup: u64 = t0 + 100;
+
+        start_cheat_block_timestamp(alarm_addr, t0);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake * 2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup, stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        // Advance to wakeup time (blocked)
+        start_cheat_block_timestamp(alarm_addr, wakeup);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.edit_alarm(wakeup, wakeup + 3600, stake);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Pool_Not_Finalized',))]
+    fn test_edit_alarm_rejected_when_pool_finalized() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake: u256 = 50000000000000000000;
+        let now: u64 = 2_000_000;
+        let wakeup: u64 = now + 10_000;
+        start_cheat_block_timestamp(alarm_addr, now);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake * 2);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup, stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        let day = wakeup / 86400; let period = ((wakeup % 86400) / 43200).try_into().unwrap();
+        start_cheat_caller_address(alarm_addr, owner);
+        alarm_dispatcher.set_reward_merkle_root(day, period, 'root');
+        stop_cheat_caller_address(alarm_addr);
+
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.edit_alarm(wakeup, wakeup + 3600, stake);
+    }
+
+    #[test]
+    fn test_delete_alarm_slashes_and_marks_deleted() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake: u256 = 50000000000000000000;
+        let now: u64 = 3_000_000;
+        let wakeup: u64 = now + 20_000;
+        start_cheat_block_timestamp(alarm_addr, now);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup, stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        let fees_before = token_dispatcher.balance_of(owner);
+        let user_before = token_dispatcher.balance_of(user);
+        let contract_before = token_dispatcher.balance_of(alarm_addr);
+
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.delete_alarm(wakeup);
+        stop_cheat_caller_address(alarm_addr);
+
+        let fees_after = token_dispatcher.balance_of(owner);
+        let user_after = token_dispatcher.balance_of(user);
+        let contract_after = token_dispatcher.balance_of(alarm_addr);
+
+        assert(fees_after == fees_before + (stake / 2), 'Fees not 50%');
+        assert(user_after == user_before + (stake / 2), 'User refund not 50%');
+        assert(contract_after == contract_before - stake, 'Contract not reduced by stake');
+
+        let day = wakeup / 86400; let period = ((wakeup % 86400) / 43200).try_into().unwrap();
+        let (_s, _w, status) = alarm_dispatcher.get_user_alarm(user, day, period);
+        assert(status == 'Deleted', 'Alarm status not Deleted');
+
+        stop_cheat_block_timestamp(alarm_addr);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Invalid_WakeUp_Time',))]
+    fn test_delete_alarm_rejected_when_time_passed() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake: u256 = 50000000000000000000;
+        let now: u64 = 4_000_000;
+        let wakeup: u64 = now + 100;
+        start_cheat_block_timestamp(alarm_addr, now);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup, stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        start_cheat_block_timestamp(alarm_addr, wakeup);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.delete_alarm(wakeup);
+    }
+
+    #[test]
+    #[should_panic(expected: ('Pool_Not_Finalized',))]
+    fn test_delete_alarm_rejected_when_pool_finalized() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher) = setup();
+        let owner = get_owner_address();
+        let user = get_user_address();
+        let stake: u256 = 50000000000000000000;
+        let now: u64 = 5_000_000;
+        let wakeup: u64 = now + 1_000;
+        start_cheat_block_timestamp(alarm_addr, now);
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(alarm_addr, stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.set_alarm(wakeup, stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        let day = wakeup / 86400; let period = ((wakeup % 86400) / 43200).try_into().unwrap();
+        start_cheat_caller_address(alarm_addr, owner);
+        alarm_dispatcher.set_reward_merkle_root(day, period, 'root');
+        stop_cheat_caller_address(alarm_addr);
+
+        start_cheat_caller_address(alarm_addr, user);
+        alarm_dispatcher.delete_alarm(wakeup);
+    }
+
+    #[test]
+    fn test_multi_users_edit_delete_finalize_and_claim_subset() {
+        let (_pc, alarm_dispatcher, _pc_addr, alarm_addr, token_dispatcher, users) = setup_five_users();
+
+        // Users array: [u1,u2,u3,u4,u5]
+        let wakeups = get_five_users_wakeup_times();
+        let rewards = get_five_users_reward_amounts();
+        let pool_day = get_five_users_pool_day();
+        let pool_period = get_five_users_pool_period();
+
+        // u1 edits alarm (no claim later in this test)
+        let u1 = *users.at(0);
+        let u1_wakeup_old = *wakeups.at(0);
+        let u1_new_stake: u256 = 30000000000000000000;
+        let u1_wakeup_new = u1_wakeup_old + 600; // +10 min
+
+        // approve for new stake and edit
+        start_cheat_caller_address(token_dispatcher.contract_address, u1);
+        token_dispatcher.approve(alarm_addr, u1_new_stake);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(alarm_addr, u1);
+        alarm_dispatcher.edit_alarm(u1_wakeup_old, u1_wakeup_new, u1_new_stake);
+        stop_cheat_caller_address(alarm_addr);
+
+        // u4 deletes alarm
+        let u4 = *users.at(3);
+        let u4_wakeup = *wakeups.at(3);
+        start_cheat_caller_address(alarm_addr, u4);
+        alarm_dispatcher.delete_alarm(u4_wakeup);
+        stop_cheat_caller_address(alarm_addr);
+
+        // Finalize pool (for original pool)
+        let merkle_root = get_five_users_merkle_root();
+        start_cheat_caller_address(alarm_addr, get_owner_address());
+        alarm_dispatcher.set_reward_merkle_root(pool_day, pool_period, merkle_root);
+        stop_cheat_caller_address(alarm_addr);
+
+        // Advance time past last wakeup and claim for u5 only (winner)
+        let latest = 1755723600_u64; // from helpers
+        start_cheat_block_timestamp(alarm_addr, latest + 1);
+        let u5 = *users.at(4);
+        let (r5, s5) = *get_five_users_signatures().at(4);
+        let proof5 = array![0x10b640f3e92e0c2b2ba27277e41e003e32928bc5b22a5dfa5a93a2334501524];
+        start_cheat_caller_address(alarm_addr, u5);
+        let reward5 = *rewards.at(4);
+        alarm_dispatcher.claim_winnings(*wakeups.at(4), 0, (r5,s5), reward5, proof5);
+        stop_cheat_caller_address(alarm_addr);
+
+        stop_cheat_block_timestamp(alarm_addr);
+    }}
