@@ -1,0 +1,24 @@
+{
+    "name": "time-lock-backend",
+    "version": "1.0.0",
+    "description": "Backend for generating signatures and merkle proofs for the time lock contract",
+    "main": "time_lock_backend.js",
+    "scripts": {
+        "start": "node time_lock_backend.js",
+        "test": "node test_backend.js"
+    },
+    "dependencies": {
+        "dotenv": "^17.2.2",
+        "starknet": "^7.6.4"
+    },
+    "keywords": [
+        "starknet",
+        "cairo",
+        "blockchain",
+        "signatures",
+        "merkle",
+        "time-lock"
+    ],
+    "author": "EverydayApp",
+    "license": "MIT"
+}

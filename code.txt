@@ -69,3 +69,24 @@ sncast --profile test deploy \
 
 // directly just use this command, since the price converter is already deployed and the alarm contract is also declared
 // just run this command and ONLY deploy the AlarmContract
+
+owner
+verified signer
+token
+price_converter
+protocol_fees_address
+
+sncast --profile test deploy \                                                                                       
+    --class-hash 0x603c2efa7cc53af280e6533faf541866afd310f46b18a1cc0ae604a449ff486\
+    --constructor-calldata \
+        0xf4405c134b92a05d0f9e80382b6ab32a32689b8aa1e25b7de02b284778aa86 \
+        0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf \
+        0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d \
+        0x049b1c24dffa53b34f80bae9576cef4d66b527263febd4f2564ee4fb3e2913c6 \ 
+        0xf4405c134b92a05d0f9e80382b6ab32a32689b8aa1e25b7de02b284778aa86
+
+owner
+verified
+token
+price_converter
+protocol_fees_address
