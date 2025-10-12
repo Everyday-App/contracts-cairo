@@ -229,7 +229,7 @@ class AlarmContractBackend {
             console.log(`⏰ Time Range: ${periodStart} - ${periodEnd}`);
             console.log(`📅 Date Range: ${new Date(periodStart * 1000)} - ${new Date(periodEnd * 1000)}`);
             
-            // Query alarms with profile data
+            // Query alarms with profile data (exclude soft-deleted alarms)
             const { data: alarms, error } = await this.supabase
                 .from('alarms')
                 .select(`
