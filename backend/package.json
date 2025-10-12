@@ -20,6 +20,7 @@
   "author": "EverydayApp Team",
   "license": "MIT",
   "dependencies": {
+    "@openzeppelin/merkle-tree": "^1.0.8",
     "@supabase/supabase-js": "^2.39.0",
     "dotenv": "^16.3.1",
     "starknet": "^7.6.4"
