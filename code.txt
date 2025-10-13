@@ -77,7 +77,7 @@ price_converter
 protocol_fees_address
 
 sncast --profile test deploy \                                                                                       
-    --class-hash 0x603c2efa7cc53af280e6533faf541866afd310f46b18a1cc0ae604a449ff486\
+    --class-hash 0x225c57109ecd4f1865d625eccddbd664d68decdb41b026891a06c7ffd84b87c\
     --constructor-calldata \
         0xf4405c134b92a05d0f9e80382b6ab32a32689b8aa1e25b7de02b284778aa86 \
         0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf \
@@ -90,3 +90,5 @@ verified
 token
 price_converter
 protocol_fees_address
+
+0x021ade328cf1d96d5a1f19dc88d6e6d0c97148e51213bec3a281cba3eb92a78d

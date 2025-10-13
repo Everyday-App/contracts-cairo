@@ -2001,11 +2001,12 @@ mod tests {
 
         let expected_fees_increase: u256 = (stake_initial * 20) / 100; // 10 STRK
         let expected_user_net_change: u256 = ((stake_initial * 80) / 100) - new_stake; // +40 -30 = +10 STRK
-        let expected_contract_net_change: u256 = new_stake - stake_initial; // 30 - 50 = -20 STRK net
-
         assert(fees_after == fees_before + expected_fees_increase, 'Fees not 20%');
         assert(user_after == user_before + expected_user_net_change, 'User refund wrong');
-        assert(contract_after == contract_before + expected_contract_net_change, 'Contract balance wrong');
+        // Avoid underflow by balancing both sides: after + old_stake == before + new_stake
+        let lhs: u256 = contract_after + stake_initial;
+        let rhs: u256 = contract_before + new_stake;
+        assert(lhs == rhs, 'Contract balance wrong');
 
         // Check alarm moved to new wakeup and stake updated
         let day_new = wakeup_new / 86400;

@@ -231,7 +231,6 @@ pub mod TimeLockContract {
         ) {
             self.reentrancy_guard.start();
             assert(stake_amount > 0, TimeLockContractErrors::INVALID_STAKE_AMOUNT);
-            assert(start_time > get_block_timestamp(), TimeLockContractErrors::INVALID_START_TIME);
             assert(duration >= MIN_DURATION, TimeLockContractErrors::INVALID_DURATION);
             assert(duration <= MAX_DURATION, TimeLockContractErrors::INVALID_DURATION);
 

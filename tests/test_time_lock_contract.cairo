@@ -351,21 +351,38 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected: ('Invalid_Start_Time',))]
-    fn test_set_phone_lock_past_start_time() {
-        let (_price_converter_dispatcher, time_lock_dispatcher, _price_converter_address, time_lock_contract_address, _token_dispatcher) = setup();
+    fn test_set_phone_lock_past_start_time_allowed_and_stored() {
+        let (_price_converter_dispatcher, time_lock_dispatcher, _price_converter_address, time_lock_contract_address, token_dispatcher) = setup();
         
         let user = get_user_address();
-        let current_time: u64 = 1000000;
-        let start_time: u64 = current_time - 1; // Past time - should fail
+        let current_time: u64 = 1_000_000;
+        let start_time: u64 = current_time - 1; // Past start is allowed after removing check
         let duration: u64 = 3600;
         let stake_amount: u256 = 5000000000000000000;
         
+        // Give user tokens and approve to avoid transfer_from failure
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.mint(user, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        start_cheat_caller_address(token_dispatcher.contract_address, user);
+        token_dispatcher.approve(time_lock_contract_address, stake_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+
         start_cheat_block_timestamp(time_lock_contract_address, current_time);
         start_cheat_caller_address(time_lock_contract_address, user);
         
-        // This should panic with INVALID_START_TIME
+        // Should succeed now that the start_time guard is removed
         time_lock_dispatcher.set_phone_lock(start_time, duration, stake_amount);
+
+        // Verify lock stored for derived (day, period)
+        let day: u64 = start_time / 86400;
+        let period_in_u64: u64 = (start_time % 86400) / 43200;
+        let period: u8 = period_in_u64.try_into().unwrap();
+        let (stored_stake, stored_start, _stored_duration, _stored_end, status) = time_lock_dispatcher.get_user_lock(user, day, period);
+        assert(stored_stake == stake_amount, 'stake stored');
+        assert(stored_start == start_time, 'start stored');
+        assert(status == 'Active', 'status active');
     }
 
     #[test]
