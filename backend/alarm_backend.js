@@ -533,11 +533,40 @@ class AlarmContractBackend {
             const receipt = await this.provider.waitForTransaction(result.transaction_hash);
             
             if (receipt.execution_status === 'SUCCEEDED') {
-                console.log(`🎉 ========== MERKLE ROOT SET SUCCESSFULLY ==========`);
-                console.log(`📋 Final Transaction Hash: ${result.transaction_hash}`);
-                console.log(`🌳 Merkle Root ${merkleRoot} set for Day ${day}, Period ${period}`);
-                console.log(`===============================================`);
-                return result.transaction_hash;
+                console.log(`✅ Transaction confirmed on-chain`);
+                
+                // Verify merkle root was actually set by reading it back
+                console.log(`🔍 Verifying merkle root was set correctly...`);
+                try {
+                    const poolInfo = await this.provider.callContract({
+                        contractAddress: alarmContractAddress,
+                        entrypoint: 'get_pool_info',
+                        calldata: [day.toString(), period.toString()]
+                    });
+                    
+                    console.log(`🔍 Raw pool info response:`, poolInfo);
+                    
+                    // Handle both old and new response formats
+                    const resultArray = poolInfo.result || poolInfo;
+                    const onChainMerkleRoot = this.toHexString(resultArray[0]);
+                    const expectedMerkleRoot = merkleRoot.toLowerCase();
+                    
+                    console.log(`📊 On-chain merkle root: ${onChainMerkleRoot}`);
+                    console.log(`📊 Expected merkle root: ${expectedMerkleRoot}`);
+                    
+                    if (onChainMerkleRoot === expectedMerkleRoot) {
+                        console.log(`🎉 ========== MERKLE ROOT SET SUCCESSFULLY ==========`);
+                        console.log(`📋 Final Transaction Hash: ${result.transaction_hash}`);
+                        console.log(`🌳 Merkle Root ${merkleRoot} verified on-chain for Day ${day}, Period ${period}`);
+                        console.log(`===============================================`);
+                        return result.transaction_hash;
+                    } else {
+                        throw new Error(`Merkle root verification failed! On-chain: ${onChainMerkleRoot}, Expected: ${expectedMerkleRoot}`);
+                    }
+                } catch (verifyError) {
+                    console.error(`⚠️ Failed to verify merkle root: ${verifyError.message}`);
+                    throw new Error(`Transaction succeeded but verification failed: ${verifyError.message}`);
+                }
             } else {
                 throw new Error(`Transaction failed with status: ${receipt.execution_status}`);
             }
@@ -851,12 +880,12 @@ async function main() {
         // Initialize all services
         await backend.initialize();
         
-        // Get day and period from command line arguments or environment
-        let day = process.argv[2] || process.env.DAY;
-        let period = process.argv[3] || process.env.PERIOD;
+        // Get day and period from command line arguments (dynamic calculation)
+        let day = process.argv[2];
+        let period = process.argv[3];
         
-        if (!day || !period || day === 'auto' || day === 'latest') {
-            if (day === 'auto' || day === 'latest') {
+        if (!day || !period || day === 'auto' || day === 'latest' || day === 'current') {
+            if (day === 'auto' || day === 'latest' || day === 'current') {
                 // Find latest pool with alarms
                 console.log('🔍 Auto-detecting latest pool with alarms...');
                 const latestPool = await backend.findLatestPoolWithAlarms();
@@ -877,7 +906,7 @@ async function main() {
                 const poolInfo = backend.getPoolInfo(currentTime);
                 day = poolInfo.day;
                 period = poolInfo.period;
-                console.log('⚠️ No day/period specified, using current time pool');
+                console.log('ℹ️ No day/period specified, calculated from current time');
             }
         }
         
@@ -919,12 +948,13 @@ function printUsage() {
     console.log('');
     console.log('Arguments:');
     console.log('  day    - Unix day number (calculated as Math.floor(wakeup_time / 86400))');
-    console.log('         - OR "auto"/"latest" to find the most recent pool with alarms');
+    console.log('         - OR "auto"/"latest"/"current" to find the most recent pool with alarms');
     console.log('  period - Pool period: 0 for AM (00:00-11:59), 1 for PM (12:00-23:59)');
     console.log('');
     console.log('Examples:');
     console.log('  node alarm_backend.js 20321 1    # Process specific day 20321, PM period');
     console.log('  node alarm_backend.js auto       # Auto-detect latest pool with alarms');
+    console.log('  node alarm_backend.js current    # Same as auto');
     console.log('  node alarm_backend.js latest     # Same as auto');
     console.log('  node alarm_backend.js            # Process current time pool');
     console.log('');
