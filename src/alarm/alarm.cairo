@@ -5,54 +5,66 @@ pub trait IAlarmContract<TContractState> {
     fn set_alarm(ref self: TContractState, wakeup_time: u64, stake_amount: u256);
     fn edit_alarm(
         ref self: TContractState,
-        old_wakeup_time: u64,
+        alarm_id: u64,
         new_wakeup_time: u64,
         new_stake_amount: u256,
     );
-    fn delete_alarm(ref self: TContractState, wakeup_time: u64);
+    fn delete_alarm(ref self: TContractState, alarm_id: u64);
     fn claim_winnings(
         ref self: TContractState,
-        wakeup_time: u64,
+        alarm_id: u64,
         snooze_count: u8,
         signature: (felt252, felt252), // STARK signature (r, s)
         reward_amount: u256,
         merkle_proof: Array<felt252>,
     );
+
     fn set_verified_signer(ref self: TContractState, new_signer: felt252);
-    fn set_reward_merkle_root(
-        ref self: TContractState, day: u64, period: u8, reward_merkle_root: felt252,
+    fn set_merkle_root_for_pool(
+        ref self: TContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256,
     );
-    fn get_pool_info(self: @TContractState, day: u64, period: u8) -> (felt252, bool, u256, u64);
-    fn get_user_alarm(
-        self: @TContractState, user: ContractAddress, day: u64, period: u8,
-    ) -> (u256, u64, felt252);
-    fn get_has_claimed_winnings(
-        self: @TContractState, user: ContractAddress, day: u64, period: u8,
-    ) -> bool;
+    
+    fn get_pool_info(self: @TContractState, day: u64, period: u8) -> (felt252, bool, u256, u64, u256);
+    fn get_alarm(self: @TContractState, user: ContractAddress, alarm_id: u64) -> (u256, u64, u8, u64, felt252);
+    fn get_has_claimed_winnings(self: @TContractState, user: ContractAddress, alarm_id: u64) -> bool;
+    fn get_has_alarm_in_pool(self: @TContractState, user: ContractAddress, day: u64, period: u8) -> bool;
     fn get_owner(self: @TContractState) -> starknet::ContractAddress;
     fn get_verified_signer(self: @TContractState) -> felt252;
-    fn get_merkle_root(self: @TContractState, day: u64, period: u8) -> felt252;
+    fn get_merkle_root_for_pool(self: @TContractState, day: u64, period: u8) -> felt252;
     fn get_minimum_stake_amount(self: @TContractState) -> u256;
+    fn get_next_alarm_id(self: @TContractState) -> u64;
 }
 
 mod AlarmContractErrors {
     pub const ZERO_ADDRESS: felt252 = 'Zero_Address';
-    pub const ALARM_ALREADY_EXISTS_IN_POOL: felt252 = 'Alarm_Already_Exists_In_Pool';
     pub const INVALID_STAKE_AMOUNT: felt252 = 'Invalid_Stake_Amount';
+    pub const LESS_THAN_MINIMUM_USD: felt252 = 'Less_Than_Minimum_USD';
+    
     pub const INVALID_WAKEUP_TIME: felt252 = 'Invalid_WakeUp_Time';
     pub const WAKEUP_TIME_NOT_REACHED: felt252 = 'WakeUp_Time_Not_Reached'; 
-    pub const INVALID_PUBLIC_KEY: felt252 = 'Invalid_Public_Key';
+    
     pub const INVALID_POOL: felt252 = 'Invalid_Pool';
+    pub const POOL_NOT_FINALIZED: felt252 = 'Pool_Not_Finalized';
+    pub const POOL_IS_FINALIZED: felt252 = 'Pool_Is_Finalized';
+
+    pub const INVALID_PUBLIC_KEY: felt252 = 'Invalid_Public_Key';
     pub const INVALID_MERKLE_ROOT: felt252 = 'Invalid_Merkle_Root';
     pub const INVALID_SIGNATURE: felt252 = 'Invalid_Signature';
     pub const INVALID_PROOF: felt252 = 'Invalid_Proof';
-    pub const TRANSFER_FAILED: felt252 = 'Transfer_Failed';
+
+    pub const STAKE_TRANSFER_FAILED: felt252 = 'Stake_Transfer_Failed';
+    pub const PROTOCOL_FEE_TRANSFER_FAILED: felt252 = 'Protocol_Fee_Transfer_Failed';
+    pub const PAYOUT_TRANSFER_FAILED: felt252 = 'Payout_Transfer_Failed';
+    pub const INSUFFICIENT_POOL_REWARDS: felt252 = 'Insufficient_Pool_Rewards';
+    
     pub const ALARM_NOT_ACTIVE: felt252 = 'Alarm_Not_Active';
-    pub const POOL_NOT_FINALIZED: felt252 = 'Pool_Not_Finalized';
-    pub const ALREADY_CLAIMED: felt252 = 'Already_Claimed';
-    pub const MUST_BE_WINNER_TO_CLAIM_REWARD: felt252 = 'Must_Be_Winner_To_Claim_Reward';
-    pub const NOT_ALARM_OWNER: felt252 = 'Not_Alarm_Owner';
+    pub const ALARM_NOT_FOUND: felt252 = 'Alarm_Not_Found';
     pub const ALARM_HAS_BEEN_DELETED: felt252 = 'Alarm_Has_Been_Deleted';
+    pub const ALARM_ALREADY_CLAIMED: felt252 = 'Alarm_Already_Claimed';
+    pub const ALARM_ALREADY_EXISTS_IN_POOL: felt252 = 'Alarm_Already_Exists_In_Pool';
+    pub const NOT_ALARM_OWNER: felt252 = 'Not_Alarm_Owner';
+    pub const MUST_BE_WINNER_TO_CLAIM_REWARD: felt252 = 'Must_Be_Winner_To_Claim_Reward';
+
 }
 
 #[starknet::contract]
@@ -102,38 +114,44 @@ pub mod AlarmContract {
         Deleted
     }
 
-    #[derive(Copy, Drop, starknet::Store, Serde)]
-    pub struct Pool {
-        pub reward_merkle_root: felt252, // Merkle root for the reward distribution
-        pub is_finalized: bool, // Indicates if the pool is finalized
-        pub total_staked: u256, // Total amount staked in this pool
-        pub user_count: u64, // Number of users who have set alarms in this pool
-    }
+#[derive(Copy, Drop, starknet::Store, Serde)]
+pub struct Pool {        
+    pub user_count: u64, // Number of users who have set alarms in this pool
+    pub total_staked: u256, // Total amount staked in this pool
+    pub merkle_root: felt252, // Merkle root for the reward distribution
+    pub is_finalized: bool, // Indicates if the pool is finalized
+    pub pool_reward: u256, // Total rewards available for this pool's winners
+}
 
     #[derive(Copy, Drop, starknet::Store, Serde)]
     pub struct Alarm {
         pub user: ContractAddress, // Address of the user who set the alarm
+        pub period: u8, // AM (0) or PM (1)
+        pub day: u64, // Day calculated from wakeup_time
         pub stake_amount: u256, // Amount staked by the user
         pub wakeup_time: u64, // Time when the alarm should trigger
+        pub alarm_id: u64, // Unique identifier for the alarm
         pub status: Status // Status of the alarm     
     }
 
     #[storage]
     struct Storage {
-        // Public key of the verified signer
-        verified_signer: felt252,
-        // Address of the ERC20 token used for staking
-        token: ContractAddress,
-        // Price converter contract address
-        price_converter: ContractAddress,
-        // Protocol fees address
+        
+        verified_signer: felt252, // Verified signer public key
+        token: ContractAddress, // Address of the ERC20 token used for staking
+        price_converter: ContractAddress, // Price converter contract address
         protocol_fees_address: ContractAddress,
-        // Day -> Period(AM/PM) -> Pool mapping
-        pools: Map<(u64, u8), Pool>,
-        // User Address -> Day -> Period(AM/PM) -> Alarm mapping
-        user_alarms: Map<(ContractAddress, u64, u8), Alarm>,
-        // User Address -> Day -> Period(AM/PM) -> Claim status mapping
-        user_has_claimed_winnings: Map<(ContractAddress, u64, u8), bool>,
+        protocol_fees: u256, 
+        alarm_id: u64, 
+        
+        pools: Map<(u64, u8), Pool>, // Day -> Period(AM/PM) -> Pool mapping
+        
+        user_alarms: Map<(ContractAddress, u64), Alarm>, // User Address -> Alarm ID -> Alarm mapping
+
+        user_has_alarm_in_pool: Map<(ContractAddress, u64, u8), bool>, // User Address -> Day -> Period(AM/PM) -> true/false if user has an alarm in this pool
+
+        user_has_claimed_winnings: Map<(ContractAddress, u64), bool>, // User Address -> Alarm ID -> Claim status mapping
+                
         #[substorage(v0)]
         ownable: OwnableComponent::Storage,
         #[substorage(v0)]
@@ -144,9 +162,13 @@ pub mod AlarmContract {
     #[derive(Drop, starknet::Event)]
     pub enum Event {
         AlarmSet: AlarmSet,
+        AlarmEdited: AlarmEdited,
+        AlarmDeleted: AlarmDeleted,
         WinningsClaimed: WinningsClaimed,
-        MerkleRootSet: MerkleRootSet,
+        MerkleRootSetForPool: MerkleRootSetForPool,
+        PoolIsFinalized: PoolIsFinalized,
         VerifiedSignerSet: VerifiedSignerSet,
+        ProtocolFeeUpdated: ProtocolFeeUpdated,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -158,9 +180,35 @@ pub mod AlarmContract {
         #[key]
         pub user: starknet::ContractAddress,
         #[key]
+        pub alarm_id: u64,
+        #[key]
         pub wakeup_time: u64,
         #[key]
         pub stake_amount: u256,
+    }
+    
+    #[derive(Drop, starknet::Event)]
+    pub struct AlarmEdited {
+        #[key]
+        pub user: starknet::ContractAddress,
+        #[key]
+        pub alarm_id: u64,
+        #[key]
+        pub new_wakeup_time: u64,
+        #[key]
+        pub new_stake_amount: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct AlarmDeleted {
+        #[key]
+        pub user: starknet::ContractAddress,
+        #[key]
+        pub alarm_id: u64,
+        #[key]
+        pub wakeup_time: u64,
+        #[key]
+        pub refunded_stake_amount: u256,
     }
 
     #[derive(Drop, starknet::Event)]
@@ -168,7 +216,7 @@ pub mod AlarmContract {
         #[key]
         pub user: starknet::ContractAddress,
         #[key]
-        pub wakeup_time: u64,
+        pub alarm_id: u64,
         #[key]
         pub snooze_count: u8,
         #[key]
@@ -176,19 +224,33 @@ pub mod AlarmContract {
     }
 
     #[derive(Drop, starknet::Event)]
-    pub struct MerkleRootSet {
+    pub struct MerkleRootSetForPool {
         #[key]
-        pub merkle_root: felt252, // add more info about pool and day
+        pub merkle_root: felt252, 
         #[key]
         pub day: u64,
         #[key]
-        pub period: u8, // 0 -> AM, 1 -> PM
+        pub period: u8, 
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct PoolIsFinalized {
+        #[key]
+        pub day: u64,
+        #[key]
+        pub period: u8,
     }
 
     #[derive(Drop, starknet::Event)]
     pub struct VerifiedSignerSet {
         #[key]
         pub verified_signer: felt252,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ProtocolFeeUpdated {
+        #[key]
+        pub protocol_fees: u256,
     }
 
     #[constructor]
@@ -205,11 +267,15 @@ pub mod AlarmContract {
         assert(!verified_signer.is_zero(), AlarmContractErrors::INVALID_PUBLIC_KEY);
         assert(!price_converter.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
         assert(!protocol_fees_address.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+
         self.ownable.initializer(owner);
         self.verified_signer.write(verified_signer);
         self.token.write(token);
         self.price_converter.write(price_converter);
         self.protocol_fees_address.write(protocol_fees_address);
+        self.alarm_id.write(1); // Reserve 0 for NO ALARM
+        self.protocol_fees.write(0); 
+
         self.emit(Event::VerifiedSignerSet(VerifiedSignerSet { verified_signer: verified_signer }));
     }
 
@@ -217,41 +283,44 @@ pub mod AlarmContract {
     impl AlarmContract of super::IAlarmContract<ContractState> {
         fn set_alarm(ref self: ContractState, wakeup_time: u64, stake_amount: u256) {
             self.reentrancy_guard.start();
-            assert(stake_amount > 0, AlarmContractErrors::INVALID_STAKE_AMOUNT);
+
+            // Check if stake amount is greater than 0 and greater than minimum stake amount in USD
+            self._stake_amount_is_valid(stake_amount);
 
             // Check if the wakeup time is in the future
-            assert(wakeup_time > get_block_timestamp(), AlarmContractErrors::INVALID_WAKEUP_TIME);
+            self._wakeup_time_is_valid(wakeup_time);
 
-            // Check if stake amount meets the minimum USD requirement
-            let usd_value: u256 = self._get_strk_usd_value(stake_amount);
-            assert(
-                usd_value >= MINIMUM_STAKE_AMOUNT_IN_USD, AlarmContractErrors::INVALID_STAKE_AMOUNT,
-            );
-
-            let day: u64 = (wakeup_time / ONE_DAY_IN_SECONDS);
-            let period_in_u64: u64 = ((wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
-
-            let period: u8 = period_in_u64.try_into().unwrap();
+            let (day, period) = self._calculate_day_and_period(wakeup_time);
 
             let user = get_caller_address();
-            let existing_alarm = self.user_alarms.read((user, day, period));
+            
+            // Check if the user already has an alarm in this pool
+            let has_alarm_in_pool = self.user_has_alarm_in_pool.read((user, day, period));
+            assert(!has_alarm_in_pool, AlarmContractErrors::ALARM_ALREADY_EXISTS_IN_POOL);
 
-            // Check if the alarm already exists for the user on the specified day and period (pool)
-            assert(
-                existing_alarm.status == Status::Inactive || existing_alarm.status == Status::Deleted,
-                AlarmContractErrors::ALARM_ALREADY_EXISTS_IN_POOL,
-            );
+            // Check if the pool is already finalized
+            let pool = self.pools.read((day, period));
+            assert(!pool.is_finalized, AlarmContractErrors::POOL_NOT_FINALIZED);
 
+            // Get current alarm ID
+            let alarm_id = self.alarm_id.read();
+            
             // Create a new alarm
             let new_user_alarm = Alarm {
                 user: user,
+                period: period,
+                day: day,
                 stake_amount: stake_amount,
                 wakeup_time: wakeup_time,
+                alarm_id: alarm_id,
                 status: Status::Active,
             };
 
             // Store the new alarm in the user_alarms mapping
-            self.user_alarms.write((user, day, period), new_user_alarm);
+            self.user_alarms.write((user, alarm_id), new_user_alarm);
+            
+            // Mark that user has an alarm in this pool
+            self.user_has_alarm_in_pool.write((user, day, period), true);
 
             // Update staked amount & user count in the pool 
             let mut pool = self.pools.read((day, period));
@@ -259,18 +328,24 @@ pub mod AlarmContract {
             pool.user_count += 1;
             self.pools.write((day, period), pool);
 
-            // transfer stake amount from user to contract
+            // Increment the alarm ID counter for the next alarm
+            self.alarm_id.write(alarm_id + 1);
+
+            // Transfer stake amount from user to contract
             let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
 
             let success: bool = token_dispatcher
                 .transfer_from(user, get_contract_address(), stake_amount);
-            assert(success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
             self
                 .emit(
                     Event::AlarmSet(
                         AlarmSet {
-                            user: user, wakeup_time: wakeup_time, stake_amount: stake_amount,
+                            user: user, 
+                            alarm_id: alarm_id,
+                            wakeup_time: wakeup_time, 
+                            stake_amount: stake_amount,
                         },
                     ),
                 );
@@ -279,189 +354,153 @@ pub mod AlarmContract {
 
         fn edit_alarm(
             ref self: ContractState,
-            old_wakeup_time: u64,
+            alarm_id: u64,
             new_wakeup_time: u64,
             new_stake_amount: u256,
         ) {
             self.reentrancy_guard.start();
-            assert(new_stake_amount > 0, AlarmContractErrors::INVALID_STAKE_AMOUNT);
-            assert(new_wakeup_time > get_block_timestamp(), AlarmContractErrors::INVALID_WAKEUP_TIME);
 
-            // Validate new stake meets minimum USD value
-            let usd_value: u256 = self._get_strk_usd_value(new_stake_amount);
-            assert(usd_value >= MINIMUM_STAKE_AMOUNT_IN_USD, AlarmContractErrors::INVALID_STAKE_AMOUNT);
+            // Check if the new stake amount is greater than 0 and greater than minimum stake amount in USD
+            self._stake_amount_is_valid(new_stake_amount);
 
-            // Derive pools
-            let old_day: u64 = (old_wakeup_time / ONE_DAY_IN_SECONDS);
-            let old_period_u64: u64 = ((old_wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
-            let old_period: u8 = old_period_u64.try_into().unwrap();
-
-            let new_day: u64 = (new_wakeup_time / ONE_DAY_IN_SECONDS);
-            let new_period_u64: u64 = ((new_wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
-            let new_period: u8 = new_period_u64.try_into().unwrap();
+            // Check if the new wakeup time is in the future
+            self._wakeup_time_is_valid(new_wakeup_time);
 
             let user = get_caller_address();
-            let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
+            let mut alarm = self.user_alarms.read((user, alarm_id));
 
-            // Load existing alarm from old pool
-            let mut alarm = self.user_alarms.read((user, old_day, old_period));
-            assert(alarm.user == user, AlarmContractErrors::NOT_ALARM_OWNER);
-            assert(alarm.status == Status::Active, AlarmContractErrors::ALARM_NOT_ACTIVE);
-            assert(get_block_timestamp() < alarm.wakeup_time, AlarmContractErrors::INVALID_WAKEUP_TIME);
+            // Perform checks
+            self._validate_if_alarm_can_be_edited_or_deleted(alarm, user);
 
-            // Old pool must not be finalized
-            let old_pool = self.pools.read((old_day, old_period));
-            assert(!old_pool.is_finalized, AlarmContractErrors::POOL_NOT_FINALIZED);
+            let (old_day, old_period) = self._calculate_day_and_period(alarm.wakeup_time);
+            let (new_day, new_period) = self._calculate_day_and_period(new_wakeup_time);
 
-            // Destination checks (skip if editing within the same pool)
             let is_same_pool: bool = (old_day == new_day) && (old_period == new_period);
-            let dest_pool = if is_same_pool { self.pools.read((old_day, old_period)) } else { self.pools.read((new_day, new_period)) };
+            let new_pool = if is_same_pool { self.pools.read((old_day, old_period)) } else { self.pools.read((new_day, new_period)) };
+            
             if (!is_same_pool) {
-                let dest_alarm = self.user_alarms.read((user, new_day, new_period));
-                assert(
-                    dest_alarm.status == Status::Inactive || dest_alarm.status == Status::Deleted,
-                    AlarmContractErrors::ALARM_ALREADY_EXISTS_IN_POOL,
-                );
-                assert(!dest_pool.is_finalized, AlarmContractErrors::POOL_NOT_FINALIZED);
+                // Check if the user already has an alarm in the new pool
+                let has_alarm_in_new_pool = self.user_has_alarm_in_pool.read((user, new_day, new_period));
+                assert(!has_alarm_in_new_pool, AlarmContractErrors::ALARM_ALREADY_EXISTS_IN_POOL);
+                assert(!new_pool.is_finalized, AlarmContractErrors::POOL_IS_FINALIZED);
             }
 
-            // Apply 20% slash to existing stake
+            // Calculate the 20% slash to existing stake & the return amount to user
             let old_stake = alarm.stake_amount;
             let slash_20: u256 = (old_stake * 20) / 100;
             let return_80: u256 = old_stake - slash_20;
+            
+            // Allocate 90% of slash to pool rewards and 10% to protocol fees
+            let protocol_fee_amount: u256 = (slash_20 * 10) / 100;
+            let pool_reward_amount: u256 = slash_20 - protocol_fee_amount;
+            
+            // Add to pool rewards
+            let (day, period) = self._calculate_day_and_period(alarm.wakeup_time);
+            let mut pool = self.pools.read((day, period));
+            pool.pool_reward += pool_reward_amount;
+            self.pools.write((day, period), pool);
+            
+            // Add to protocol fees
+            self.protocol_fees.write(self.protocol_fees.read() + protocol_fee_amount);
 
-            // Transfer slash to fees and return remainder to user
+            if (is_same_pool) {
+                self._edit_alarm_in_same_pool(alarm, new_wakeup_time, new_stake_amount);
+            } else {
+                self._edit_alarm_in_new_pool(alarm, new_day, new_period, new_wakeup_time, new_stake_amount);
+            }
+            
+            let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
+
+            // Transfer slashed amount to protocol fees address and refund remaining amount to user
             let fees_addr = self.protocol_fees_address.read();
             let fee_transfer_success: bool = token_dispatcher.transfer(fees_addr, slash_20);
-            assert(fee_transfer_success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(fee_transfer_success, AlarmContractErrors::PROTOCOL_FEE_TRANSFER_FAILED);
+            
             let user_refund_success: bool = token_dispatcher.transfer(user, return_80);
-            assert(user_refund_success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(user_refund_success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
-            // Update pool accounting
-            if (is_same_pool) {
-                let mut pool_mut = old_pool;
-                // remove old stake, add new stake (user count unchanged)
-                if (pool_mut.total_staked >= old_stake) {
-                    pool_mut.total_staked -= old_stake;
-                } else {
-                    pool_mut.total_staked = 0;
-                }
-                pool_mut.total_staked += new_stake_amount;
-                self.pools.write((old_day, old_period), pool_mut);
-
-                // Update existing alarm in-place
-                alarm.stake_amount = new_stake_amount;
-                alarm.wakeup_time = new_wakeup_time;
-                self.user_alarms.write((user, old_day, old_period), alarm);
-            } else {
-                // Move alarm between pools
-                let mut old_pool_mut = old_pool;
-                if (old_pool_mut.total_staked >= old_stake) {
-                    old_pool_mut.total_staked -= old_stake;
-                } else {
-                    old_pool_mut.total_staked = 0;
-                }
-                if (old_pool_mut.user_count > 0) {
-                    old_pool_mut.user_count -= 1;
-                }
-                self.pools.write((old_day, old_period), old_pool_mut);
-
-                let mut new_pool_mut = dest_pool;
-                new_pool_mut.total_staked += new_stake_amount;
-                new_pool_mut.user_count += 1;
-                self.pools.write((new_day, new_period), new_pool_mut);
-
-                // Clear old mapping and write new alarm
-                self.user_alarms.write((user, old_day, old_period), Alarm { user: 0.try_into().unwrap(), stake_amount: 0, wakeup_time: 0, status: Status::Inactive });
-                let updated_alarm = Alarm { user: user, stake_amount: new_stake_amount, wakeup_time: new_wakeup_time, status: Status::Active };
-                self.user_alarms.write((user, new_day, new_period), updated_alarm);
-            }
-
-            // Collect new stake from user
+            // Transfer new stake amount from user to contract
             let new_stake_transfer_success: bool = token_dispatcher.transfer_from(user, get_contract_address(), new_stake_amount);
-            assert(new_stake_transfer_success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(new_stake_transfer_success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
+            self.emit(Event::ProtocolFeeUpdated(ProtocolFeeUpdated { protocol_fees: self.protocol_fees.read() }));
+            self.emit(Event::AlarmEdited(AlarmEdited { user: user, alarm_id: alarm_id, new_wakeup_time: new_wakeup_time, new_stake_amount: new_stake_amount }));
+           
             self.reentrancy_guard.end();
         }
 
-        fn delete_alarm(ref self: ContractState, wakeup_time: u64) {
+        fn delete_alarm(ref self: ContractState, alarm_id: u64) {
             self.reentrancy_guard.start();
 
-            let day: u64 = (wakeup_time / ONE_DAY_IN_SECONDS);
-            let period_u64: u64 = ((wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
-            let period: u8 = period_u64.try_into().unwrap();
-
             let user = get_caller_address();
-            let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
-            let mut alarm = self.user_alarms.read((user, day, period));
+            let mut alarm = self.user_alarms.read((user, alarm_id));
+            
+            // Perform checks
+            self._validate_if_alarm_can_be_edited_or_deleted(alarm, user);
 
-            assert(alarm.user == user, AlarmContractErrors::NOT_ALARM_OWNER);
-            assert(alarm.status == Status::Active, AlarmContractErrors::ALARM_NOT_ACTIVE);
-            assert(get_block_timestamp() < alarm.wakeup_time, AlarmContractErrors::INVALID_WAKEUP_TIME);
-
-            let pool = self.pools.read((day, period));
-            assert(!pool.is_finalized, AlarmContractErrors::POOL_NOT_FINALIZED);
+            let (day, period) = self._calculate_day_and_period(alarm.wakeup_time);
 
             // Apply 50% slash
             let stake = alarm.stake_amount;
             let slash_50: u256 = (stake * 50) / 100;
             let return_50: u256 = stake - slash_50;
 
+            // Allocate 90% of slash to pool rewards and 10% to protocol fees
+            let protocol_fee_amount: u256 = (slash_50 * 10) / 100;
+            let pool_reward_amount: u256 = slash_50 - protocol_fee_amount;
+            
+            // Add to protocol fees
+            self.protocol_fees.write(self.protocol_fees.read() + protocol_fee_amount);
+
+            // Update pool 
+            let mut pool = self.pools.read((day, period));
+            pool.pool_reward += pool_reward_amount;
+            pool.total_staked -= stake;
+            pool.user_count -= 1;
+            self.pools.write((day, period), pool);
+            
+            // Mark that the user no longer has an alarm in the pool
+            self.user_has_alarm_in_pool.write((user, day, period), false);
+
+            // Mark alarm as Deleted and clear stake amount
+            alarm.status = Status::Deleted;
+            alarm.stake_amount = 0;
+            self.user_alarms.write((user, alarm_id), alarm);
+
+            let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
+            
+            // Transfer slashed amount to protocol fees address and refund remaining amount to user
             let fees_addr = self.protocol_fees_address.read();
             let fee_transfer_success: bool = token_dispatcher.transfer(fees_addr, slash_50);
-            assert(fee_transfer_success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(fee_transfer_success, AlarmContractErrors::PROTOCOL_FEE_TRANSFER_FAILED);
+            
             let user_refund_success: bool = token_dispatcher.transfer(user, return_50);
-            assert(user_refund_success, AlarmContractErrors::TRANSFER_FAILED);
+            assert(user_refund_success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
-            // Update pool accounting
-            let mut pool_mut = pool;
-            if (pool_mut.total_staked >= stake) {
-                pool_mut.total_staked -= stake;
-            } else {
-                pool_mut.total_staked = 0;
-            }
-            if (pool_mut.user_count > 0) {
-                pool_mut.user_count -= 1;
-            }
-            self.pools.write((day, period), pool_mut);
-
-            // Mark alarm as Deleted
-            alarm.status = Status::Deleted;
-            self.user_alarms.write((user, day, period), alarm);
-
+            self.emit(Event::ProtocolFeeUpdated(ProtocolFeeUpdated { protocol_fees: self.protocol_fees.read() }));
+            self.emit(Event::AlarmDeleted(AlarmDeleted { user: user, alarm_id: alarm_id, wakeup_time: alarm.wakeup_time, refunded_stake_amount: return_50 }));
             self.reentrancy_guard.end();
         }
 
         fn claim_winnings(
             ref self: ContractState,
-            wakeup_time: u64,
+            alarm_id: u64,
             snooze_count: u8,
             signature: (felt252, felt252), // STARK signature (r, s)
             reward_amount: u256,
             merkle_proof: Array<felt252>,
         ) {
             self.reentrancy_guard.start();
-
-            assert(get_block_timestamp() >= wakeup_time, AlarmContractErrors::WAKEUP_TIME_NOT_REACHED);
             
-            let day: u64 = (wakeup_time / ONE_DAY_IN_SECONDS);
-            let period_in_u64: u64 = ((wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
-            let period: u8 = period_in_u64.try_into().unwrap();
             let claimer = get_caller_address();
-
-            let alarm = self.user_alarms.read((claimer, day, period));
-
-            // Only the alarm owner can claim their own winnings
-            assert(alarm.user == claimer, AlarmContractErrors::NOT_ALARM_OWNER);
-            // Deleted alarms cannot be claimed
-            assert(alarm.status != Status::Deleted, AlarmContractErrors::ALARM_HAS_BEEN_DELETED);
-
+            let alarm = self.user_alarms.read((claimer, alarm_id));
+        
             // Perform initial checks
-            self._validate_claim_preconditions(alarm, day, period);
+            self._validate_claim_preconditions(alarm, claimer);
 
             // Verify the outcome signature from the backend
             let (signature_r, signature_s) = signature;
-            self._verify_outcome_signature(wakeup_time, snooze_count, signature_r, signature_s);
+            self._verify_outcome_signature(alarm.wakeup_time, snooze_count, signature_r, signature_s);
 
             // Calculate how much of the original stake should be returned based on snooze count
             let amount_to_return: u256 = InternalFunctionsTrait::_calculate_stake_return(
@@ -470,32 +509,40 @@ pub mod AlarmContract {
 
             // Verify the reward claim if the user was a winner
             if (snooze_count == 0) {
-                self._verify_reward_claim(day, period, reward_amount, merkle_proof);
+                self._verify_reward_claim(alarm.day, alarm.period, reward_amount, merkle_proof);
+                // Ensure the pool has enough rewards
+                let pool = self.pools.read((alarm.day, alarm.period));
+                assert(pool.pool_reward >= reward_amount, AlarmContractErrors::INSUFFICIENT_POOL_REWARDS);
+                
+                // Deduct the reward from the pool
+                let mut updated_pool = pool;
+                updated_pool.pool_reward -= reward_amount;
+                self.pools.write((alarm.day, alarm.period), updated_pool);
             } else {
                 assert(reward_amount == 0, AlarmContractErrors::MUST_BE_WINNER_TO_CLAIM_REWARD);
             }
 
-            // Mark the user as having claimed winnings for this day and period
-            self.user_has_claimed_winnings.write((claimer, day, period), true);
+            // Mark the user as having claimed winnings for this alarm ID
+            self.user_has_claimed_winnings.write((claimer, alarm_id), true);
 
             // Update alarm status to Completed
             let mut updated_alarm = alarm;
             updated_alarm.status = Status::Completed;
-            self.user_alarms.write((claimer, day, period), updated_alarm);
+            self.user_alarms.write((claimer, alarm_id), updated_alarm);
 
             let total_payout: u256 = amount_to_return + reward_amount;
             if (total_payout > 0) {
                 // Transfer the total payout to the claimer
                 let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
                 let success: bool = token_dispatcher.transfer(claimer, total_payout);
-                assert(success, AlarmContractErrors::TRANSFER_FAILED);
+                assert(success, AlarmContractErrors::PAYOUT_TRANSFER_FAILED);
             }
             self
                 .emit(
                     Event::WinningsClaimed(
                         WinningsClaimed {
                             user: claimer,
-                            wakeup_time: wakeup_time,
+                            alarm_id: alarm_id,
                             snooze_count: snooze_count,
                             winnings_amount: total_payout,
                         },
@@ -511,49 +558,52 @@ pub mod AlarmContract {
             self.emit(Event::VerifiedSignerSet(VerifiedSignerSet { verified_signer: new_signer }));
         }
 
-        fn set_reward_merkle_root(
-            ref self: ContractState, day: u64, period: u8, reward_merkle_root: felt252,
+        fn set_merkle_root_for_pool(
+            ref self: ContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256,
         ) {
             self.ownable.assert_only_owner();
             // Ensure period is either AM (0) or PM (1)
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
 
             // Ensure merkle root is not zero
-            assert(reward_merkle_root != 0, AlarmContractErrors::INVALID_MERKLE_ROOT);
+            assert(merkle_root != 0, AlarmContractErrors::INVALID_MERKLE_ROOT);
 
-            // Get existing pool data to preserve total_staked and user_count
+            // Get existing pool data to preserve total_staked, user_count and add to existing pool_reward
             let existing_pool = self.pools.read((day, period));
+            
+            // Add new rewards from losers to the existing pool_reward from edit/delete operations
+            let total_pool_reward = existing_pool.pool_reward + new_rewards;
 
             self
                 .pools
                 .write(
                     (day, period),
                     Pool {
-                        reward_merkle_root: reward_merkle_root,
+                        merkle_root: merkle_root,
                         is_finalized: true, // Set the pool as finalized
                         total_staked: existing_pool.total_staked,
                         user_count: existing_pool.user_count,
+                        pool_reward: total_pool_reward, // Add new rewards to existing pool_reward
                     },
                 );
-
-            self.emit(Event::MerkleRootSet(MerkleRootSet { merkle_root: reward_merkle_root, day: day, period: period }) );
+            self.emit(Event::PoolIsFinalized(PoolIsFinalized { day: day, period: period }) );
+            self.emit(Event::MerkleRootSetForPool(MerkleRootSetForPool { merkle_root: merkle_root, day: day, period: period }) );
         }
 
-        fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool, u256, u64) {
+        fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool, u256, u64, u256) {
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
 
             let pool = self.pools.read((day, period));
 
-            (pool.reward_merkle_root, pool.is_finalized, pool.total_staked, pool.user_count)
+            (pool.merkle_root, pool.is_finalized, pool.total_staked, pool.user_count, pool.pool_reward)
         }
 
-        fn get_user_alarm(
-            self: @ContractState, user: ContractAddress, day: u64, period: u8,
-        ) -> (u256, u64, felt252) {
+        fn get_alarm(
+            self: @ContractState, user: ContractAddress, alarm_id: u64,
+        ) -> (u256, u64, u8, u64, felt252) {
             assert(!user.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
-            assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
 
-            let alarm = self.user_alarms.read((user, day, period));
+            let alarm = self.user_alarms.read((user, alarm_id));
             let alarm_status: felt252 = match alarm.status {
                 Status::Inactive => 'Inactive',
                 Status::Active => 'Active',
@@ -561,14 +611,23 @@ pub mod AlarmContract {
                 Status::Deleted => 'Deleted',
             };
 
-            (alarm.stake_amount, alarm.wakeup_time, alarm_status)
+            // Return stake_amount, wakeup_time, period, day, status
+            (alarm.stake_amount, alarm.wakeup_time, alarm.period, alarm.day, alarm_status)
         }
 
         fn get_has_claimed_winnings(
+            self: @ContractState, user: ContractAddress, alarm_id: u64,
+        ) -> bool {
+            assert(!user.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
+            self.user_has_claimed_winnings.read((user, alarm_id))
+        }
+        
+        fn get_has_alarm_in_pool(
             self: @ContractState, user: ContractAddress, day: u64, period: u8,
         ) -> bool {
+            assert(!user.is_zero(), AlarmContractErrors::ZERO_ADDRESS);
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
-            self.user_has_claimed_winnings.read((user, day, period))
+            self.user_has_alarm_in_pool.read((user, day, period))
         }
 
         fn get_owner(self: @ContractState) -> ContractAddress {
@@ -579,19 +638,39 @@ pub mod AlarmContract {
             self.verified_signer.read()
         }
 
-        fn get_merkle_root(self: @ContractState, day: u64, period: u8) -> felt252 {
-            // self.ownable.assert_only_owner();
+        fn get_merkle_root_for_pool(self: @ContractState, day: u64, period: u8) -> felt252 {
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
-            self.pools.read((day, period)).reward_merkle_root
+            self.pools.read((day, period)).merkle_root
         }
 
         fn get_minimum_stake_amount(self: @ContractState) -> u256 {
             MINIMUM_STAKE_AMOUNT_IN_USD
         }
+        
+        fn get_next_alarm_id(self: @ContractState) -> u64 {
+            self.alarm_id.read()
+        }
     }
 
     #[generate_trait]
     impl InternalFunctions of InternalFunctionsTrait {
+        fn _stake_amount_is_valid(self: @ContractState, stake_amount: u256) {
+            assert(stake_amount > 0, AlarmContractErrors::INVALID_STAKE_AMOUNT);
+            let usd_value: u256 = self._get_strk_usd_value(stake_amount);
+            assert(usd_value >= MINIMUM_STAKE_AMOUNT_IN_USD, AlarmContractErrors::LESS_THAN_MINIMUM_USD);
+        }
+
+        fn _wakeup_time_is_valid(self: @ContractState, wakeup_time: u64) {
+            assert(wakeup_time > get_block_timestamp(), AlarmContractErrors::INVALID_WAKEUP_TIME);
+        }
+
+        fn _calculate_day_and_period(self: @ContractState, wakeup_time: u64) -> (u64, u8) {
+            let day: u64 = (wakeup_time / ONE_DAY_IN_SECONDS);
+            let period_in_u64: u64 = ((wakeup_time % ONE_DAY_IN_SECONDS) / TWELVE_HOURS_IN_SECONDS);
+            let period: u8 = period_in_u64.try_into().unwrap();
+            (day, period)
+        }
+
         fn _get_strk_usd_value(self: @ContractState, stake_amount: u256) -> u256 {
             let price_converter = IPriceConverterDispatcher {
                 contract_address: self.price_converter.read(),
@@ -616,18 +695,101 @@ pub mod AlarmContract {
             (usd_value)
         }
 
-        fn _validate_claim_preconditions(
-            ref self: ContractState, alarm: Alarm, day: u64, period: u8,
-        ) {
+        fn _validate_if_alarm_can_be_edited_or_deleted(self: @ContractState, alarm:Alarm, user:ContractAddress) {
+            // Checks for user to be able to edit/delete their alarm 
+            //   -> The user should be the alarm OWNER
+            //   -> The alarm is Active/Not Deleted
+            //   -> The alarm is Not Triggered Yet
+            //   -> The pool is Not Finalised Yet
+
+            assert(alarm.user == user, AlarmContractErrors::NOT_ALARM_OWNER);
+            assert(alarm.status != Status::Inactive, AlarmContractErrors::ALARM_NOT_FOUND);
+            assert(alarm.status != Status::Deleted, AlarmContractErrors::ALARM_HAS_BEEN_DELETED);
             assert(alarm.status == Status::Active, AlarmContractErrors::ALARM_NOT_ACTIVE);
-            assert(
-                self.pools.read((day, period)).is_finalized,
-                AlarmContractErrors::POOL_NOT_FINALIZED,
-            );
-            assert(
-                !self.user_has_claimed_winnings.read((get_caller_address(), day, period)),
-                AlarmContractErrors::ALREADY_CLAIMED,
-            );
+            assert(get_block_timestamp() < alarm.wakeup_time, AlarmContractErrors::INVALID_WAKEUP_TIME);
+            assert(!self.pools.read((alarm.day, alarm.period)).is_finalized, AlarmContractErrors::POOL_IS_FINALIZED);
+        }
+
+        fn _edit_alarm_in_same_pool(ref self: ContractState, alarm: Alarm, new_wakeup_time: u64, new_stake_amount: u256) {
+            let old_day = alarm.day;
+            let old_period = alarm.period;
+            let old_stake = alarm.stake_amount;
+            let user = alarm.user;
+            let alarm_id = alarm.alarm_id;
+
+            let mut pool = self.pools.read((old_day, old_period));
+            
+            pool.total_staked = pool.total_staked - old_stake + new_stake_amount;
+            self.pools.write((old_day, old_period), pool);
+
+            let updated_alarm = Alarm {
+                user: user,
+                period: old_period,
+                day: old_day,
+                stake_amount: new_stake_amount,
+                wakeup_time: new_wakeup_time,
+                alarm_id: alarm_id,
+                status: Status::Active,
+            };
+            
+            // Write the updated alarm back to storage
+            self.user_alarms.write((user, alarm_id), updated_alarm);
+        }
+
+        fn _edit_alarm_in_new_pool(ref self: ContractState, alarm: Alarm, new_day: u64, new_period: u8, new_wakeup_time: u64, new_stake_amount: u256) {
+                // Move alarm between pools
+                let old_day = alarm.day;
+                let old_period = alarm.period;
+                let old_stake = alarm.stake_amount;
+                let user = alarm.user;
+                let alarm_id = alarm.alarm_id;
+                let mut old_pool = self.pools.read((old_day, old_period));
+
+                old_pool.total_staked -= old_stake;
+                old_pool.user_count -= 1;
+                self.pools.write((old_day, old_period), old_pool);
+
+                let mut new_pool = self.pools.read((new_day, new_period));
+                new_pool.total_staked += new_stake_amount;
+                new_pool.user_count += 1;
+                self.pools.write((new_day, new_period), new_pool);
+
+                // Mark that the user no longer has an alarm in the old pool and has an alarm in the new pool
+                self.user_has_alarm_in_pool.write((user, old_day, old_period), false);
+                self.user_has_alarm_in_pool.write((user, new_day, new_period), true);
+
+                let updated_alarm = Alarm {
+                    user: user,
+                    period: new_period,
+                    day: new_day,
+                    stake_amount: new_stake_amount,
+                    wakeup_time: new_wakeup_time,
+                    alarm_id: alarm_id,
+                    status: Status::Active,
+                };
+                
+                // Write the updated alarm back to storage
+                self.user_alarms.write((user, alarm_id), updated_alarm);
+        }
+
+        fn _validate_claim_preconditions(
+            ref self: ContractState, alarm: Alarm, claimer: ContractAddress) {
+            // Checks for user to be able to claim winnings
+            //   -> The user should be the alarm OWNER
+            //   -> The alarm is Active/Not Deleted
+            //   -> The pool is Finalised
+            //   -> The user has not yet claimed
+            //   -> The wakeup time has been reached
+
+            assert(alarm.user == claimer, AlarmContractErrors::NOT_ALARM_OWNER);
+            assert(alarm.status != Status::Inactive, AlarmContractErrors::ALARM_NOT_FOUND);
+            assert(alarm.status != Status::Deleted, AlarmContractErrors::ALARM_HAS_BEEN_DELETED);
+            assert(alarm.status == Status::Active, AlarmContractErrors::ALARM_NOT_ACTIVE);
+            
+            assert(get_block_timestamp() >= alarm.wakeup_time, AlarmContractErrors::WAKEUP_TIME_NOT_REACHED);
+
+            assert(self.pools.read((alarm.day, alarm.period)).is_finalized, AlarmContractErrors::POOL_NOT_FINALIZED,);
+            assert(!self.user_has_claimed_winnings.read((claimer, alarm.alarm_id)),AlarmContractErrors::ALARM_ALREADY_CLAIMED);
         }
 
         fn _verify_outcome_signature(
@@ -703,9 +865,8 @@ pub mod AlarmContract {
             let proof_span = merkle_proof.span();
 
             // Using OpenZeppelin's verify_poseidon for Starknet-native verification
-            let is_valid = merkle_proof::verify_poseidon(proof_span, pool.reward_merkle_root, leaf);
+            let is_valid = merkle_proof::verify_poseidon(proof_span, pool.merkle_root, leaf);
             assert(is_valid, AlarmContractErrors::INVALID_PROOF);
         }
     }
 }
-
