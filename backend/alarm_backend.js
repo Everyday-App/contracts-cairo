@@ -134,6 +134,58 @@ class AlarmContractBackend {
     }
 
     /**
+     * Find all pools that need processing (have claim_ready = false)
+     * @returns {Promise<Array>} Array of {day, period} objects
+     */
+    async findAllUnprocessedPools() {
+        try {
+            console.log(`🔍 ========== FINDING ALL UNPROCESSED POOLS ==========`);
+            
+            // Get all alarms that haven't been processed yet
+            const { data: alarms, error } = await this.supabase
+                .from('alarms')
+                .select('wakeup_time')
+                .eq('claim_ready', false)
+                .order('wakeup_time', { ascending: true });
+            
+            if (error) {
+                throw new Error(`Database query failed: ${error.message}`);
+            }
+            
+            if (!alarms || alarms.length === 0) {
+                console.log(`✅ No unprocessed alarms found`);
+                return [];
+            }
+            
+            // Group by unique pool (day, period)
+            const poolsSet = new Set();
+            const pools = [];
+            
+            for (const alarm of alarms) {
+                const poolInfo = this.getPoolInfo(alarm.wakeup_time);
+                const poolKey = `${poolInfo.day}_${poolInfo.period}`;
+                
+                if (!poolsSet.has(poolKey)) {
+                    poolsSet.add(poolKey);
+                    pools.push(poolInfo);
+                }
+            }
+            
+            console.log(`📊 Found ${pools.length} unprocessed pools from ${alarms.length} unprocessed alarms`);
+            pools.forEach(p => {
+                const date = new Date((p.day * 86400 + p.period * 43200) * 1000);
+                console.log(`   📅 Day ${p.day}, Period ${p.period} (${date.toLocaleString()})`);
+            });
+            
+            return pools;
+            
+        } catch (error) {
+            console.error(`❌ Failed to find unprocessed pools:`, error);
+            return [];
+        }
+    }
+
+    /**
      * Find the latest pool that contains alarms
      * @returns {Promise<Object|null>} {day, period} of the latest pool with alarms, or null if none found
      */
@@ -762,20 +814,25 @@ class AlarmContractBackend {
             // Step 4: Build merkle tree
             console.log(`\n🌳 STEP 4: BUILDING MERKLE TREE`);
             
-            // ✅ FIXED: Include ALL users in merkle tree, not just winners
-            // This ensures every user gets a merkle proof for contract validation
-            const leaves = users.map(user => {
-                const userReward = rewards.find(r => r.address === user.address);
-                const rewardAmount = userReward ? userReward.reward_amount : "0";
+            // ✅ Aggregate rewards by unique address (handle multiple alarms per user)
+            const uniqueAddresses = [...new Set(users.map(u => u.address))];
+            console.log(`📊 Found ${users.length} alarms from ${uniqueAddresses.length} unique users`);
+            
+            // Build leaves with one entry per unique address
+            const leaves = uniqueAddresses.map(address => {
+                // Sum all rewards for this address
+                const userRewards = rewards.filter(r => r.address === address);
+                const totalReward = userRewards.reduce((sum, r) => sum + BigInt(r.reward_amount), BigInt(0));
+                
                 return {
-                    address: user.address,
-                    hash: this.createMerkleLeaf(user.address, rewardAmount)
+                    address: address,
+                    hash: this.createMerkleLeaf(address, totalReward.toString())
                 };
             });
             
             const merkleTree = this.buildMerkleTree(leaves);
             console.log(`✅ Merkle tree built with root: ${merkleTree.root}`);
-            console.log(`📊 Tree includes ${leaves.length} users (${rewards.length} winners + ${users.length - rewards.length} non-winners)`);
+            console.log(`📊 Tree includes ${leaves.length} unique addresses (${rewards.length} reward entries from ${users.length} total alarms)`);
             
             // Step 5: Set merkle root on-chain (REQUIRED - must succeed!)
             console.log(`\n⛓️ STEP 5: SETTING MERKLE ROOT ON-CHAIN`);
@@ -884,6 +941,57 @@ async function main() {
         let day = process.argv[2];
         let period = process.argv[3];
         
+        // Check for "process-all" mode
+        if (day === 'all' || day === 'process-all') {
+            console.log('🔄 ========== PROCESS ALL UNPROCESSED POOLS MODE ==========');
+            const pools = await backend.findAllUnprocessedPools();
+            
+            if (pools.length === 0) {
+                console.log('✅ All pools are already processed!');
+                return;
+            }
+            
+            console.log(`\n🚀 Will process ${pools.length} pools...\n`);
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (let i = 0; i < pools.length; i++) {
+                const pool = pools[i];
+                console.log(`\n${'='.repeat(70)}`);
+                console.log(`📊 Processing Pool ${i + 1}/${pools.length}: Day ${pool.day}, Period ${pool.period}`);
+                console.log(`${'='.repeat(70)}\n`);
+                
+                try {
+                    const results = await backend.processAlarmPool(pool.day, pool.period);
+                    if (results.success) {
+                        successCount++;
+                        console.log(`✅ Pool ${i + 1}/${pools.length} completed successfully`);
+                    } else {
+                        failCount++;
+                        console.log(`⚠️ Pool ${i + 1}/${pools.length} completed with issues: ${results.message}`);
+                    }
+                } catch (error) {
+                    failCount++;
+                    console.error(`❌ Pool ${i + 1}/${pools.length} failed:`, error.message);
+                }
+                
+                // Add a small delay between pools to avoid rate limiting
+                if (i < pools.length - 1) {
+                    console.log('\n⏳ Waiting 3 seconds before next pool...\n');
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                }
+            }
+            
+            console.log('\n' + '='.repeat(70));
+            console.log('🎉 ========== ALL POOLS PROCESSED ==========');
+            console.log(`✅ Successful: ${successCount}`);
+            console.log(`❌ Failed: ${failCount}`);
+            console.log(`📊 Total: ${pools.length}`);
+            console.log('='.repeat(70));
+            return;
+        }
+        
         if (!day || !period || day === 'auto' || day === 'latest' || day === 'current') {
             if (day === 'auto' || day === 'latest' || day === 'current') {
                 // Find latest pool with alarms
@@ -949,6 +1057,7 @@ function printUsage() {
     console.log('Arguments:');
     console.log('  day    - Unix day number (calculated as Math.floor(wakeup_time / 86400))');
     console.log('         - OR "auto"/"latest"/"current" to find the most recent pool with alarms');
+    console.log('         - OR "all"/"process-all" to process ALL unprocessed pools');
     console.log('  period - Pool period: 0 for AM (00:00-11:59), 1 for PM (12:00-23:59)');
     console.log('');
     console.log('Examples:');
@@ -956,6 +1065,7 @@ function printUsage() {
     console.log('  node alarm_backend.js auto       # Auto-detect latest pool with alarms');
     console.log('  node alarm_backend.js current    # Same as auto');
     console.log('  node alarm_backend.js latest     # Same as auto');
+    console.log('  node alarm_backend.js all        # Process ALL unprocessed pools');
     console.log('  node alarm_backend.js            # Process current time pool');
     console.log('');
     console.log('Environment Variables Required:');

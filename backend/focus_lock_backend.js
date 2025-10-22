@@ -174,6 +174,97 @@ class FocusLockContractBackend {
     }
 
     /**
+     * Find ALL unprocessed pools that need processing
+     * @returns {Promise<Array>} Array of {day, period} objects for unprocessed pools
+     */
+    async findAllUnprocessedPools() {
+        try {
+            console.log(`🔍 ========== FINDING ALL UNPROCESSED POOLS ==========`);
+            
+            // Calculate cutoff time (48 hours ago)
+            const now = Math.floor(Date.now() / 1000);
+            const cutoffTime = now - (48 * 3600); // 48 hours
+            
+            console.log(`⏰ Current Time: ${now} (${new Date(now * 1000)})`);
+            console.log(`⏰ Cutoff Time: ${cutoffTime} (${new Date(cutoffTime * 1000)})`);
+            console.log(`⚠️  Pools older than 48 hours will be skipped (contract limitation)`);
+            
+            // Get all focus locks where claim_ready is false (not yet processed)
+            // AND end_time is within last 48 hours (start_time + duration_minutes*60)
+            const { data: locks, error } = await this.supabase
+                .from('focus_locks')
+                .select('id, start_time, duration_minutes, day, period')
+                .eq('claim_ready', false)
+                .order('start_time', { ascending: true });
+            
+            if (error) {
+                throw new Error(`Database query failed: ${error.message}`);
+            }
+            
+            if (!locks || locks.length === 0) {
+                console.log(`✅ No unprocessed focus locks found - all pools are up to date!`);
+                return [];
+            }
+            
+            // Filter locks by end time (must be within 48 hours)
+            const recentLocks = locks.filter(lock => {
+                const endTime = lock.start_time + (lock.duration_minutes * 60);
+                const isRecent = endTime >= cutoffTime;
+                const hoursAgo = Math.floor((now - endTime) / 3600);
+                
+                if (!isRecent) {
+                    console.log(`⏭️  Skipping lock ${lock.id.substring(0, 8)}... (ended ${hoursAgo}h ago - too old for contract)`);
+                }
+                
+                return isRecent;
+            });
+            
+            if (recentLocks.length === 0) {
+                console.log(`⚠️  All ${locks.length} unprocessed locks are too old (>48h) - skipping`);
+                console.log(`💡 Tip: Old locks cannot be processed on-chain and should be hidden in the UI`);
+                return [];
+            }
+            
+            console.log(`📊 Found ${recentLocks.length} recent locks out of ${locks.length} total unprocessed locks`);
+            
+            // Log each recent lock's pool info
+            recentLocks.forEach(lock => {
+                const poolInfo = this.getPoolInfo(lock.start_time);
+                const endTime = lock.start_time + (lock.duration_minutes * 60);
+                const hoursAgo = Math.floor((now - endTime) / 3600);
+                console.log(`📊 Pool Info - Start Time: ${lock.start_time} → Day: ${poolInfo.day}, Period: ${poolInfo.period} (ended ${hoursAgo}h ago)`);
+            });
+            
+            // Group locks by day/period to get unique pools
+            const poolsMap = new Map();
+            recentLocks.forEach(lock => {
+                const key = `${lock.day}_${lock.period}`;
+                if (!poolsMap.has(key)) {
+                    poolsMap.set(key, {
+                        day: lock.day,
+                        period: lock.period,
+                        start_time: lock.start_time
+                    });
+                }
+            });
+            
+            const uniquePools = Array.from(poolsMap.values());
+            
+            console.log(`📊 Found ${uniquePools.length} unprocessed pools from ${recentLocks.length} recent locks`);
+            uniquePools.forEach(pool => {
+                const dateObj = new Date(pool.start_time * 1000);
+                console.log(`   📅 Day ${pool.day}, Period ${pool.period} (${dateObj.toLocaleDateString()}, ${dateObj.toLocaleTimeString()})`);
+            });
+            
+            return uniquePools;
+            
+        } catch (error) {
+            console.error(`❌ Failed to find unprocessed pools:`, error);
+            return [];
+        }
+    }
+
+    /**
      * Fetch focus locks data from Supabase database for a specific day/period
      * @param {number} day - Unix day
      * @param {number} period - 0-3 for 6-hour periods
@@ -732,7 +823,7 @@ class FocusLockContractBackend {
 // Main runner function - Integrated Database & Blockchain Processing
 async function main() {
     console.log('🏗️ ========== FOCUS LOCK BACKEND PROCESSOR ==========');
-    console.log('🕐 Started at:', new Date());
+    console.log('🕐 Started at:', new Date().toISOString());
     
     const backend = new FocusLockContractBackend();
     
@@ -744,6 +835,75 @@ async function main() {
         let day = process.argv[2] || process.env.DAY;
         let period = process.argv[3] || process.env.PERIOD;
         
+        // Check for "process-all" mode
+        if (day === 'process-all') {
+            console.log('🔄 ========== PROCESS ALL UNPROCESSED POOLS MODE ==========');
+            
+            // Find all unprocessed pools
+            const unprocessedPools = await backend.findAllUnprocessedPools();
+            
+            if (unprocessedPools.length === 0) {
+                console.log('🎉 All pools are already processed! Nothing to do.');
+                return;
+            }
+            
+            console.log(`\n🚀 Will process ${unprocessedPools.length} pools...\n`);
+            
+            // Process each pool
+            let successCount = 0;
+            let failCount = 0;
+            const failedPools = [];
+            
+            for (let i = 0; i < unprocessedPools.length; i++) {
+                const pool = unprocessedPools[i];
+                
+                console.log('\n======================================================================');
+                console.log(`📊 Processing Pool ${i + 1}/${unprocessedPools.length}: Day ${pool.day}, Period ${pool.period}`);
+                console.log('======================================================================\n');
+                
+                try {
+                    const results = await backend.processFocusLockPool(pool.day, pool.period);
+                    
+                    if (results.success) {
+                        successCount++;
+                        console.log(`✅ Pool ${i + 1}/${unprocessedPools.length} processed successfully\n`);
+                    } else {
+                        failCount++;
+                        failedPools.push({ ...pool, reason: results.message });
+                        console.log(`⚠️ Pool ${i + 1}/${unprocessedPools.length} skipped: ${results.message}\n`);
+                    }
+                } catch (error) {
+                    failCount++;
+                    failedPools.push({ ...pool, reason: error.message });
+                    console.error(`❌ Pool ${i + 1}/${unprocessedPools.length} failed: ${error.message}\n`);
+                    // Continue with next pool instead of crashing
+                }
+                
+                // Add a small delay between processing pools to avoid rate limiting
+                if (i < unprocessedPools.length - 1) {
+                    console.log('⏳ Waiting 2 seconds before next pool...\n');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            }
+            
+            // Final summary
+            console.log('\n🎉 ========== BATCH PROCESSING COMPLETE ==========');
+            console.log(`📊 Total Pools: ${unprocessedPools.length}`);
+            console.log(`✅ Successfully Processed: ${successCount}`);
+            console.log(`❌ Failed/Skipped: ${failCount}`);
+            
+            if (failedPools.length > 0) {
+                console.log('\n⚠️ Failed/Skipped Pools:');
+                failedPools.forEach(pool => {
+                    console.log(`   Day ${pool.day}, Period ${pool.period}: ${pool.reason}`);
+                });
+            }
+            
+            console.log('================================================\n');
+            return;
+        }
+        
+        // Single pool mode
         if (!day || !period || day === 'auto' || day === 'latest') {
             if (day === 'auto' || day === 'latest') {
                 // Find latest pool with locks
@@ -808,12 +968,14 @@ function printUsage() {
     console.log('Arguments:');
     console.log('  day    - Unix day number (calculated as Math.floor(start_time / 86400))');
     console.log('         - OR "auto"/"latest" to find the most recent pool with locks');
+    console.log('         - OR "process-all" to process ALL unprocessed pools');
     console.log('  period - Pool period: 0-3 for 6-hour periods (0=0-6h, 1=6-12h, 2=12-18h, 3=18-24h)');
     console.log('');
     console.log('Examples:');
     console.log('  node focus_lock_backend.js 20321 1    # Process specific day 20321, period 1');
     console.log('  node focus_lock_backend.js auto       # Auto-detect latest pool with locks');
     console.log('  node focus_lock_backend.js latest     # Same as auto');
+    console.log('  node focus_lock_backend.js process-all # Process ALL unprocessed pools');
     console.log('  node focus_lock_backend.js            # Process current time pool');
     console.log('');
     console.log('Environment Variables Required:');
