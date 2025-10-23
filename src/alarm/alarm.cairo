@@ -21,8 +21,9 @@ pub trait IAlarmContract<TContractState> {
 
     fn set_verified_signer(ref self: TContractState, new_signer: felt252);
     fn set_merkle_root_for_pool(
-        ref self: TContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256,
+        ref self: TContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256, protocol_fees: u256,
     );
+    fn withdraw_protocol_fees(ref self: TContractState);
     
     fn get_pool_info(self: @TContractState, day: u64, period: u8) -> (felt252, bool, u256, u64, u256);
     fn get_alarm(self: @TContractState, user: ContractAddress, alarm_id: u64) -> (u256, u64, u8, u64, felt252);
@@ -94,6 +95,10 @@ pub mod AlarmContract {
 
     const ONE_DAY_IN_SECONDS: u64 = 86400; // 24 * 60 * 60
     const TWELVE_HOURS_IN_SECONDS: u64 = 43200; // 12 * 60 * 60
+    const SLASH_20: u256 = 20;
+    const SLASH_50: u256 = 50;
+    const PROTOCOL_FEE_PERCENT: u256 = 10;
+    const PERCENT_BASE: u256 = 100;
 
     // Minimum stake: 1 USD expressed with 18 decimals to match STRK token precision
     // This allows direct comparison without additional decimal conversions
@@ -169,6 +174,7 @@ pub struct Pool {
         PoolIsFinalized: PoolIsFinalized,
         VerifiedSignerSet: VerifiedSignerSet,
         ProtocolFeeUpdated: ProtocolFeeUpdated,
+        ProtocolFeesWithdrawn: ProtocolFeesWithdrawn,
         #[flat]
         OwnableEvent: OwnableComponent::Event,
         #[flat]
@@ -251,6 +257,14 @@ pub struct Pool {
     pub struct ProtocolFeeUpdated {
         #[key]
         pub protocol_fees: u256,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    pub struct ProtocolFeesWithdrawn {
+        #[key]
+        pub amount: u256,
+        #[key]
+        pub recipient: starknet::ContractAddress,
     }
 
     #[constructor]
@@ -387,11 +401,11 @@ pub struct Pool {
 
             // Calculate the 20% slash to existing stake & the return amount to user
             let old_stake = alarm.stake_amount;
-            let slash_20: u256 = (old_stake * 20) / 100;
+            let slash_20: u256 = (old_stake * SLASH_20) / PERCENT_BASE;
             let return_80: u256 = old_stake - slash_20;
             
             // Allocate 90% of slash to pool rewards and 10% to protocol fees
-            let protocol_fee_amount: u256 = (slash_20 * 10) / 100;
+            let protocol_fee_amount: u256 = (slash_20 * PROTOCOL_FEE_PERCENT) / PERCENT_BASE;
             let pool_reward_amount: u256 = slash_20 - protocol_fee_amount;
             
             // Add to pool rewards
@@ -411,11 +425,7 @@ pub struct Pool {
             
             let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
 
-            // Transfer slashed amount to protocol fees address and refund remaining amount to user
-            let fees_addr = self.protocol_fees_address.read();
-            let fee_transfer_success: bool = token_dispatcher.transfer(fees_addr, slash_20);
-            assert(fee_transfer_success, AlarmContractErrors::PROTOCOL_FEE_TRANSFER_FAILED);
-            
+            // Refund remaining amount to user 
             let user_refund_success: bool = token_dispatcher.transfer(user, return_80);
             assert(user_refund_success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
@@ -442,11 +452,11 @@ pub struct Pool {
 
             // Apply 50% slash
             let stake = alarm.stake_amount;
-            let slash_50: u256 = (stake * 50) / 100;
+            let slash_50: u256 = (stake * SLASH_50) / PERCENT_BASE;
             let return_50: u256 = stake - slash_50;
 
             // Allocate 90% of slash to pool rewards and 10% to protocol fees
-            let protocol_fee_amount: u256 = (slash_50 * 10) / 100;
+            let protocol_fee_amount: u256 = (slash_50 * PROTOCOL_FEE_PERCENT) / PERCENT_BASE;
             let pool_reward_amount: u256 = slash_50 - protocol_fee_amount;
             
             // Add to protocol fees
@@ -469,11 +479,7 @@ pub struct Pool {
 
             let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
             
-            // Transfer slashed amount to protocol fees address and refund remaining amount to user
-            let fees_addr = self.protocol_fees_address.read();
-            let fee_transfer_success: bool = token_dispatcher.transfer(fees_addr, slash_50);
-            assert(fee_transfer_success, AlarmContractErrors::PROTOCOL_FEE_TRANSFER_FAILED);
-            
+            // Refund remaining amount to user 
             let user_refund_success: bool = token_dispatcher.transfer(user, return_50);
             assert(user_refund_success, AlarmContractErrors::STAKE_TRANSFER_FAILED);
 
@@ -552,15 +558,18 @@ pub struct Pool {
         }
 
         fn set_verified_signer(ref self: ContractState, new_signer: felt252) {
+            self.reentrancy_guard.start();
             self.ownable.assert_only_owner();
             assert(!new_signer.is_zero(), AlarmContractErrors::INVALID_PUBLIC_KEY);
             self.verified_signer.write(new_signer);
             self.emit(Event::VerifiedSignerSet(VerifiedSignerSet { verified_signer: new_signer }));
+            self.reentrancy_guard.end();
         }
 
         fn set_merkle_root_for_pool(
-            ref self: ContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256,
+            ref self: ContractState, day: u64, period: u8, merkle_root: felt252, new_rewards: u256, protocol_fees: u256,
         ) {
+            self.reentrancy_guard.start();
             self.ownable.assert_only_owner();
             // Ensure period is either AM (0) or PM (1)
             assert(period == 0 || period == 1, AlarmContractErrors::INVALID_POOL);
@@ -573,6 +582,9 @@ pub struct Pool {
             
             // Add new rewards from losers to the existing pool_reward from edit/delete operations
             let total_pool_reward = existing_pool.pool_reward + new_rewards;
+            
+            // Add 10% protocol fees from the total pool rewards 
+            self.protocol_fees.write(self.protocol_fees.read() + protocol_fees);
 
             self
                 .pools
@@ -586,8 +598,31 @@ pub struct Pool {
                         pool_reward: total_pool_reward, // Add new rewards to existing pool_reward
                     },
                 );
+            self.emit(Event::ProtocolFeeUpdated(ProtocolFeeUpdated { protocol_fees: self.protocol_fees.read() }));
             self.emit(Event::PoolIsFinalized(PoolIsFinalized { day: day, period: period }) );
             self.emit(Event::MerkleRootSetForPool(MerkleRootSetForPool { merkle_root: merkle_root, day: day, period: period }) );
+            self.reentrancy_guard.end();
+        }
+
+        fn withdraw_protocol_fees(ref self: ContractState) {
+            self.reentrancy_guard.start();
+            self.ownable.assert_only_owner();
+            
+            let accumulated_fees = self.protocol_fees.read();
+            assert(accumulated_fees > 0, 'No fees to withdraw');
+            
+            // Reset the counter
+            self.protocol_fees.write(0);
+            
+            // Transfer to protocol fees address
+            let token_dispatcher = IERC20Dispatcher { contract_address: self.token.read() };
+            let fees_addr = self.protocol_fees_address.read();
+            let success: bool = token_dispatcher.transfer(fees_addr, accumulated_fees);
+            assert(success, AlarmContractErrors::PROTOCOL_FEE_TRANSFER_FAILED);
+
+            self.emit(Event::ProtocolFeeUpdated(ProtocolFeeUpdated { protocol_fees: 0 }));
+            self.emit(Event::ProtocolFeesWithdrawn(ProtocolFeesWithdrawn { amount: accumulated_fees, recipient: fees_addr }));
+            self.reentrancy_guard.end();
         }
 
         fn get_pool_info(self: @ContractState, day: u64, period: u8) -> (felt252, bool, u256, u64, u256) {
