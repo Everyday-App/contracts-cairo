@@ -3,9 +3,11 @@
     "day": "20320",
     "period": 1,
     "contract_address": "0x0f1E5a19D34FB93648285F28Eb2b4506e6791EB7",
-    "merkle_root": "0x5907d0d55ff821451dd24434a701d9b08afc1c707e6c87d0e1a5e3e0093b65",
+    "merkle_root": "0x1403dbfd19e5b3679aa7940b772f6f4ad890ad10de72c961e837eb28e07c1fa",
     "total_slashed_amount": "150000000000000000000"
   },
+  "protocol_fees": "15000000000000000000",
+  "rewards_for_winners": "135000000000000000000",
   "user_results": [
     {
       "address": "0x068e5011bbef90f8227382ea517277b631339205af237d5e853573248fc726a4",
@@ -14,8 +16,8 @@
       "stake_amount": "50000000000000000000",
       "completion_status": true,
       "stake_return_amount": "50000000000000000000",
-      "reward_amount": "75000000000000000000",
-      "total_payout": "125000000000000000000",
+      "reward_amount": "67500000000000000000",
+      "total_payout": "117500000000000000000",
       "signature": {
         "r": "0x56e119700bf5e7c2ff8c7474720927a3a4c69848c6ff88d3a8fa013e4be40d4",
         "s": "0x37fde5e2cbaf3458eea37667d5803e4f3feaf9aaf751040b9371e0dfe85197b",
@@ -23,7 +25,7 @@
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [
-        "0x7eb08947439b7ace0dd9a8a25cbbbab3ccf0ad7d74612e4336c448226abf53a"
+        "0x34f0ddbc2d9557bb935f8da19d0dd572d5b512017b60edcba0a3dbcd8beeb69"
       ],
       "is_winner": true,
       "claim_ready": true
@@ -73,8 +75,8 @@
       "stake_amount": "50000000000000000000",
       "completion_status": true,
       "stake_return_amount": "50000000000000000000",
-      "reward_amount": "75000000000000000000",
-      "total_payout": "125000000000000000000",
+      "reward_amount": "67500000000000000000",
+      "total_payout": "117500000000000000000",
       "signature": {
         "r": "0x1db2f47c0d654b1ca235ae081224a13163d088dc7c2a5f143f28fbd7aac5d2",
         "s": "0x3a2f6b18ad0dc66a04a1f7e98cb9fad612c1f18485f1b622c04ea46a8a4f71e",
@@ -82,7 +84,7 @@
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [
-        "0x2ffbc832783493997fed1502444381f92fbbc46a79a5c94c24b4fb72d36d7c2"
+        "0x7fe12d65fc2ecb30d4d7cb4d5ec75d47bfcbd4aaa76a7176bbc7aa52c53622f"
       ],
       "is_winner": true,
       "claim_ready": true

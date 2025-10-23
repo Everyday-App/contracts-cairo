@@ -11,35 +11,40 @@
             "start_time": "1755709200",
             "duration": "3600",
             "stake_amount": "50000000000000000000",
-            "completion_status": true
+            "completion_status": true,
+            "comment": "Winner 1: 50 STRK, 1 hour (weight = 50 * 1 = 50)"
         },
         {
             "address": "0x04b30350238863e574f135c84b48f860be87c90afc37843709b4613aab32f018",
             "start_time": "1755712800",
             "duration": "7200",
             "stake_amount": "50000000000000000000",
-            "completion_status": false
+            "completion_status": true,
+            "comment": "Winner 2: 50 STRK, 2 hours (weight = 50 * 2 = 100)"
         },
         {
             "address": "0x043abd6f2049a4de67a533068dd90336887eab3786864c50e2b2ca8be17de564",
             "start_time": "1755716400",
             "duration": "1800",
-            "stake_amount": "50000000000000000000",
-            "completion_status": false
+            "stake_amount": "100000000000000000000",
+            "completion_status": true,
+            "comment": "Winner 3: 100 STRK, 0.5 hours (weight = 100 * 0.5 = 50)"
         },
         {
             "address": "0x04e1cd2b21092ceb6999a2480bcc12a8b206867885d14a28aa7a1eb2169b015a",
             "start_time": "1755720000",
             "duration": "5400",
             "stake_amount": "50000000000000000000",
-            "completion_status": true
+            "completion_status": false,
+            "comment": "Loser: 50 STRK, 1.5 hours - Failed"
         },
         {
             "address": "0x07bd8a637e29d94961f31c9561b952069057a5a9cad3179303b9c37710eb2cdd",
             "start_time": "1755723600",
             "duration": "2400",
             "stake_amount": "50000000000000000000",
-            "completion_status": false
+            "completion_status": false,
+            "comment": "Loser: 50 STRK, 0.67 hours - Failed"
         }
     ]
 }
