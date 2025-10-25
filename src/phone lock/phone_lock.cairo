@@ -294,7 +294,7 @@ pub mod PhoneLockContract {
 
             // Check if the pool is already finalized
             let pool = self.pools.read((day, period));
-            assert(!pool.is_finalized, PhoneLockContractErrors::POOL_NOT_FINALIZED);
+            assert(!pool.is_finalized, PhoneLockContractErrors::POOL_IS_FINALIZED);
 
             // Get current lock ID
             let lock_id = self.lock_id.read();
