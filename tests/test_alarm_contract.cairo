@@ -204,12 +204,12 @@ mod tests {
 
     // Helper function to get merkle root from test_outputs.json
     fn get_test_merkle_root() -> felt252 {
-        0x2e6cb2847142da7d17991d0496834001aa726bf7c145c80426fd4c28eff796a
+        0x33edc6a1238e6f3f5bc9f51bf7979e57a9112d457c5b699e726a04e2ef3e47d
     }
 
     // Helper function to get winner reward amount from test_outputs.json
     fn get_winner_reward_amount() -> u256 {
-        42500000000000000000 // 42.5 STRK
+        76500000000000000000 // 76.5 STRK (updated with sorted pairs)
     }
 
     // Helper function to create a simple merkle tree and proof for testing
@@ -346,14 +346,14 @@ mod tests {
         assert(contract_balance_after == contract_balance_before + stake_amount, 'Contract balance incorrect');
         
         // Calculate expected day and period
-        let day = wakeup_time / 86400; // ONE_DAY_IN_SECONDS
+        let _day = wakeup_time / 86400; // ONE_DAY_IN_SECONDS
         let period_u64 = (wakeup_time % 86400) / 43200; // TWELVE_HOURS_IN_SECONDS
-        let period: u8 = period_u64.try_into().unwrap();
+        let _period: u8 = period_u64.try_into().unwrap();
         
         // Verify alarm was created with correct data
         // Get alarm_id from get_next_alarm_id() - 1
         let alarm_id = alarm_dispatcher.get_next_alarm_id() - 1;
-        let (stored_stake, stored_wakeup, stored_period, stored_day, status) = alarm_dispatcher.get_alarm(user, alarm_id);
+        let (stored_stake, stored_wakeup, _stored_period, _stored_day, status) = alarm_dispatcher.get_alarm(user, alarm_id);
         assert(stored_stake == stake_amount, 'Wrong stored stake amount');
         assert(stored_wakeup == wakeup_time, 'Wrong stored wakeup time');
         assert(status == 'Active', 'Wrong alarm status');
@@ -1000,7 +1000,7 @@ mod tests {
         let merkle_root: felt252 = 'test_root';
         
         // Initial state - pool should be empty and not finalized
-        let (initial_root, initial_finalized, initial_total, initial_count, initial_reward) = alarm_dispatcher.get_pool_info(day, period);
+        let (initial_root, initial_finalized, initial_total, initial_count, _initial_reward) = alarm_dispatcher.get_pool_info(day, period);
         assert(initial_root == 0, 'Initial root should be 0');
         assert(!initial_finalized, 'Should not be finalized');
         assert(initial_total == 0, 'Initial total should be 0');
@@ -1022,7 +1022,7 @@ mod tests {
         stop_cheat_caller_address(alarm_contract_address);
         
         // Check pool state after adding user - should have info but no merkle root
-        let (mid_root, mid_finalized, mid_total, mid_count, mid_reward) = alarm_dispatcher.get_pool_info(day, period);
+        let (mid_root, mid_finalized, mid_total, mid_count, _mid_reward) = alarm_dispatcher.get_pool_info(day, period);
         assert(mid_root == 0, 'Root should still be 0');
         assert(!mid_finalized, 'Should not be finalized yet');
         assert(mid_total == stake_amount, 'Total should match stake');
@@ -1035,7 +1035,7 @@ mod tests {
         stop_cheat_caller_address(alarm_contract_address);
         
         // Check final state - should preserve info and be finalized
-        let (final_root, final_finalized, final_total, final_count, final_reward) = alarm_dispatcher.get_pool_info(day, period);
+        let (final_root, final_finalized, final_total, final_count, _final_reward) = alarm_dispatcher.get_pool_info(day, period);
         assert(final_root == merkle_root, 'Root should be set');
         assert(final_finalized, 'Should be finalized');
         assert(final_total == stake_amount, 'Total should be preserved');
@@ -1051,7 +1051,7 @@ mod tests {
         let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher) = setup();
         
         let day: u64 = 300;
-        let period: u8 = 0;
+        let _period: u8 = 0;
         let current_time: u64 = day * 86400;
         let wakeup_time: u64 = current_time + 5400; // 1.5 hours into AM period
         let user = get_user_address();
@@ -1096,8 +1096,8 @@ mod tests {
         let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
         
         let zero_address: ContractAddress = 0.try_into().unwrap();
-        let day: u64 = 100;
-        let period: u8 = 0;
+        let _day: u64 = 100;
+        let _period: u8 = 0;
         
         // Should panic with "Zero_Address"
         alarm_dispatcher.get_alarm(zero_address, 0);
@@ -1117,8 +1117,8 @@ mod tests {
         let (_price_converter_dispatcher, alarm_dispatcher, _price_converter_address, _alarm_contract_address, _token_dispatcher) = setup();
         
         let user = get_user_address();
-        let day: u64 = 400;
-        let period: u8 = 1; // PM period
+        let _day: u64 = 400;
+        let _period: u8 = 1; // PM period
         
         // Initial state should be false (not claimed)
         // For this test, we need to set up an alarm first to get a valid alarm_id
@@ -1128,8 +1128,8 @@ mod tests {
         
         // Test different users and periods
         let another_user = get_another_user_address();
-        let another_day: u64 = 401;
-        let another_period: u8 = 0;
+        let _another_day: u64 = 401;
+        let _another_period: u8 = 0;
         
         let another_alarm_id = 2; // Assume alarm_id 2 for testing
         let another_claimed = alarm_dispatcher.get_has_claimed_winnings(another_user, another_alarm_id);
@@ -1223,7 +1223,7 @@ mod tests {
         let signature = get_winner_signature(); // Use real signature for winner
         let reward_amount = get_winner_reward_amount(); // Use real reward amount
         let merkle_root = get_test_merkle_root(); // Use real merkle root
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
         
         // Set merkle root to finalize pool (day=20320, period=1)
         let owner = get_owner_address();
@@ -1325,18 +1325,23 @@ mod tests {
     #[test]
     #[should_panic(expected: ('Alarm_Not_Active',))]
     fn test_claim_winnings_alarm_status_changes() {
-        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, _token_dispatcher, winner, _loser) = setup_two_users();
+        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher, winner, _loser) = setup_two_users();
         
         let wakeup_time = 1755709200; // Backend user1 wakeup time (winner)
         let snooze_count: u8 = 0;
         let (r,s) = get_winner_signature(); // Winner's signature 
         let reward_amount = get_winner_reward_amount();
         let merkle_root = get_test_merkle_root();
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
-        let total_payout: u256 = 92500000000000000000; 
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
+        let total_payout: u256 = 126500000000000000000; // 50 stake + 76.5 reward = 126.5 STRK 
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, reward_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
         
         // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
         start_cheat_caller_address(alarm_contract_address, owner);
         // Add reward_amount to the pool when setting merkle root
         alarm_dispatcher.set_merkle_root_for_pool(20320, 1, merkle_root, reward_amount, 0);
@@ -1377,11 +1382,16 @@ mod tests {
         let (r,s) = get_winner_signature(); // Winner's signature 
         let reward_amount = get_winner_reward_amount();
         let merkle_root = get_test_merkle_root();
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
-        let total_payout: u256 = 92500000000000000000; 
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
+        let total_payout: u256 = 126500000000000000000; // 50 stake + 76.5 reward = 126.5 STRK 
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, reward_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
         
         // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
         start_cheat_caller_address(alarm_contract_address, owner);
         // Add reward_amount to the pool when setting merkle root
         alarm_dispatcher.set_merkle_root_for_pool(20320, 1, merkle_root, reward_amount, 0);
@@ -1538,10 +1548,15 @@ mod tests {
         let (r,s) = get_winner_signature();
         let reward_amount = get_winner_reward_amount();
         let merkle_root = get_test_merkle_root();
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, reward_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
         
         // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
         start_cheat_caller_address(alarm_contract_address, owner);
         // Add reward_amount to the pool when setting merkle root
         alarm_dispatcher.set_merkle_root_for_pool(20320, 1, merkle_root, reward_amount, 0);
@@ -1558,10 +1573,10 @@ mod tests {
         let alarm_id = 1;
         alarm_dispatcher.claim_winnings(alarm_id, snooze_count, (r,s), reward_amount, merkle_proof);
         
-        // Check final balance - should get full stake back (50 STRK) + reward (42.5 STRK)
+        // Check final balance - should get full stake back (50 STRK) + reward (76.5 STRK)
         let final_balance = token_dispatcher.balance_of(winner);
         let stake_amount: u256 = 50000000000000000000; // Full 50 STRK stake
-        let expected_total = stake_amount + reward_amount; // 92.5 STRK total
+        let expected_total = stake_amount + reward_amount; // 126.5 STRK total
         assert(final_balance == initial_balance + expected_total, 'Wrong stake return no snooze');
     }
 
@@ -1611,7 +1626,7 @@ mod tests {
         
         // Setup test values
         let stake_amount: u256 = 50000000000000000000; // 50 STRK
-        let snooze_count: u8 = 2; // 2 snoozes = 50% slash = 50% return
+        let _snooze_count: u8 = 2; // 2 snoozes = 50% slash = 50% return
         
         // Calculate expected return (50% for 2 snoozes)
         let expected_return = 25000000000000000000_u256; // 50% of 50 STRK = 25 STRK
@@ -1635,10 +1650,10 @@ mod tests {
         // by calculating it manually
         
         // Setup test values
-        let stake_amount: u256 = 50000000000000000000; // 50 STRK
+        let _stake_amount: u256 = 50000000000000000000; // 50 STRK
         
         // Test with snooze_count = 3
-        let snooze_count3: u8 = 3;
+        let _snooze_count3: u8 = 3;
         let expected_return3 = 0_u256; // 0% of stake = 0 STRK
         
         // Calculate actual return manually - for 3+ snoozes, return is always 0
@@ -1648,13 +1663,13 @@ mod tests {
         assert(actual_return3 == expected_return3, 'Wrong return for 3 snoozes');
         
         // Test with snooze_count = 4 (higher)
-        let snooze_count4: u8 = 4;
+        let _snooze_count4: u8 = 4;
         let expected_return4 = 0_u256; // 0% of stake = 0 STRK
         let actual_return4 = SLASH_100_PERCENT;
         assert(actual_return4 == expected_return4, 'Wrong return for 4 snoozes');
         
         // Test with snooze_count = 10 (much higher)
-        let snooze_count10: u8 = 10;
+        let _snooze_count10: u8 = 10;
         let expected_return10 = 0_u256; // 0% of stake = 0 STRK
         let actual_return10 = SLASH_100_PERCENT;
         assert(actual_return10 == expected_return10, 'Wrong return for 10 snoozes');
@@ -1662,17 +1677,22 @@ mod tests {
 
     #[test]
     fn test_alarm_status_update_after_claim() {
-        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, _token_dispatcher, winner, _loser) = setup_two_users();
+        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher, winner, _loser) = setup_two_users();
         
         let wakeup_time = 1755709200; // Backend user1 wakeup time (winner)
         let snooze_count: u8 = 0; // No snooze
         let (r,s) = get_winner_signature();
         let reward_amount = get_winner_reward_amount();
         let merkle_root = get_test_merkle_root();
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, reward_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
         
         // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
         start_cheat_caller_address(alarm_contract_address, owner);
         // Add reward_amount to the pool when setting merkle root
         alarm_dispatcher.set_merkle_root_for_pool(20320, 1, merkle_root, reward_amount, 0);
@@ -1701,18 +1721,23 @@ mod tests {
 
     #[test]
     fn test_event_emission_winnings_claimed() {
-        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, _token_dispatcher, winner, _loser) = setup_two_users();
+        let (_price_converter, alarm_dispatcher, _price_converter_address, alarm_contract_address, token_dispatcher, winner, _loser) = setup_two_users();
         
         let wakeup_time = 1755709200; // Backend user1 wakeup time (winner)
         let snooze_count: u8 = 0; // No snooze
         let (r,s) = get_winner_signature();
         let reward_amount = get_winner_reward_amount();
         let merkle_root = get_test_merkle_root();
-        let merkle_proof = array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da]; // Backend user1 proof
-        let total_payout: u256 = 92500000000000000000; 
+        let merkle_proof = array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7]; // Backend user1 proof (sorted pairs)
+        let total_payout: u256 = 126500000000000000000; // 50 stake + 76.5 reward = 126.5 STRK 
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, reward_amount);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
         
         // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
         start_cheat_caller_address(alarm_contract_address, owner);
         // Add reward_amount to the pool when setting merkle root
         alarm_dispatcher.set_merkle_root_for_pool(20320, 1, merkle_root, reward_amount, 0);
@@ -1757,11 +1782,17 @@ mod tests {
         let pool_day = get_five_users_pool_day();
         let pool_period = get_five_users_pool_period();
         
-        // Set merkle root to finalize pool with rewards
-        let owner = get_owner_address();
-        start_cheat_caller_address(alarm_contract_address, owner);
         // Calculate total rewards needed for all winners
         let total_rewards = *reward_amounts.at(0) + *reward_amounts.at(4); // User 1 and User 5 rewards
+        
+        // Transfer reward tokens to contract before finalizing
+        let owner = get_owner_address();
+        start_cheat_caller_address(token_dispatcher.contract_address, owner);
+        token_dispatcher.transfer(alarm_contract_address, total_rewards);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
+        // Set merkle root to finalize pool with rewards
+        start_cheat_caller_address(alarm_contract_address, owner);
         alarm_dispatcher.set_merkle_root_for_pool(pool_day, pool_period, merkle_root, total_rewards, 0);
         stop_cheat_caller_address(alarm_contract_address);
         
@@ -1780,17 +1811,17 @@ mod tests {
             }
             
             let user = *users.at(i);
-            let wakeup_time = *wakeup_times.at(i);
+            let _wakeup_time = *wakeup_times.at(i);
             let snooze_count = *snooze_counts.at(i);
             let (r, s) = *signatures.at(i);
             let reward_amount = *reward_amounts.at(i);
             let total_payout = *total_payouts.at(i);
             
-            // Get merkle proof for current user from backend data
+            // Get merkle proof for current user from backend data (sorted pairs)
             let merkle_proof = if i == 0 {
-                array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da] // user1
+                array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7] // user1 (sorted pairs)
             } else if i == 4 {
-                array![0x10b640f3e92e0c2b2ba27277e41e003e32928bc5b22a5dfa5a93a2334501524] // user5
+                array![0x131188dc8702849654dd568780a641442789a93e70cd4abb1269c381f91cdaf] // user5 (sorted pairs)
             } else {
                 array![] // users 2, 3, 4 have no proof (not winners)
             };
@@ -1969,36 +2000,36 @@ mod tests {
     }
 
     fn get_five_users_merkle_root() -> felt252 {
-        0x2e6cb2847142da7d17991d0496834001aa726bf7c145c80426fd4c28eff796a // From updated alarm_outputs.json
+        0x33edc6a1238e6f3f5bc9f51bf7979e57a9112d457c5b699e726a04e2ef3e47d // From updated alarm_outputs.json with sorted pairs
     }
 
     fn get_five_users_merkle_proofs() -> Array<Array<felt252>> {
         array![
-            array![0x2a34fe87655481f4d6e4abb7d28e9bdb97378f0ad955b0e4792622477bad0da], // user1 merkle proof
+            array![0x6aa84d629b6b7622096f66253bd9a0e4fb3621cbcb0f1df889d14fb8fcd7c7], // user1 merkle proof (sorted pairs)
             array![], // user2 - no proof (not winner)
             array![], // user3 - no proof (not winner)
             array![], // user4 - no proof (not winner)
-            array![0x10b640f3e92e0c2b2ba27277e41e003e32928bc5b22a5dfa5a93a2334501524]  // user5 merkle proof
+            array![0x131188dc8702849654dd568780a641442789a93e70cd4abb1269c381f91cdaf]  // user5 merkle proof (sorted pairs)
         ]
     }
 
     fn get_five_users_reward_amounts() -> Array<u256> {
         array![
-            42500000000000000000,  // user1 - 42.5 STRK reward
+            76500000000000000000,  // user1 - 76.5 STRK reward (updated with sorted pairs)
             0,                      // user2 - no reward (snoozed)
             0,                      // user3 - no reward (snoozed)
             0,                      // user4 - no reward (snoozed)
-            42500000000000000000   // user5 - 42.5 STRK reward
+            76500000000000000000   // user5 - 76.5 STRK reward (updated with sorted pairs)
         ]
     }
 
     fn get_five_users_total_payouts() -> Array<u256> {
         array![
-            92500000000000000000, // user1 - 92.5 STRK total (50 stake + 42.5 reward)
-            40000000000000000000, // user2 - 40 STRK total (80% of 50)
-            25000000000000000000, // user3 - 25 STRK total (50% of 50)
-            0,                    // user4 - 0 STRK total (100% slashed)
-            92500000000000000000  // user5 - 92.5 STRK total (50 + 42.5)
+            126500000000000000000, // user1 - 126.5 STRK total (50 stake + 76.5 reward)
+            40000000000000000000,  // user2 - 40 STRK total (80% of 50)
+            25000000000000000000,  // user3 - 25 STRK total (50% of 50)
+            0,                     // user4 - 0 STRK total (100% slashed)
+            126500000000000000000  // user5 - 126.5 STRK total (50 + 76.5)
         ]
     }
 
@@ -2064,7 +2095,7 @@ mod tests {
 
         // Calculate expected values for fee distribution
         let total_slash: u256 = (stake_initial * 20) / 100; // 20% of stake is slashed
-        let expected_fees_increase: u256 = total_slash; // 100% of slash goes to fees in the test setup
+        let _expected_fees_increase: u256 = total_slash; // 100% of slash goes to fees in the test setup
         let expected_user_net_change: u256 = ((stake_initial * 80) / 100) - new_stake; // +40 -30 = +10 STRK
         
         // Verify fees are accumulated in contract (not transferred yet)
@@ -2083,7 +2114,7 @@ mod tests {
         let refund_amount: u256 = (stake_initial * 80) / 100; // 40 STRK
         let fee_amount: u256 = (stake_initial * 20) / 100; // 10 STRK
         // Contract balance change: -refund + new_stake + fees = -40 + 30 + 10 = 0
-        let expected_contract_after: u256 = contract_before - refund_amount + new_stake + fee_amount;
+        let _expected_contract_after: u256 = contract_before - refund_amount + new_stake + fee_amount;
         
         // Debug: Let's see what the actual values are
         // For now, let's just check that the contract balance is reasonable
@@ -2197,7 +2228,7 @@ mod tests {
 
         // Calculate expected values for 90/10 split
         let total_slash: u256 = stake / 2; // 50% of stake is slashed
-        let expected_fees_increase: u256 = total_slash; // 100% of slash goes to fees in the test setup
+        let _expected_fees_increase: u256 = total_slash; // 100% of slash goes to fees in the test setup
         
         // Verify fees are accumulated in contract (not transferred yet)
         assert(fees_after == fees_before, 'Fees not transferred yet');
@@ -2208,7 +2239,7 @@ mod tests {
         let period: u8 = period_u64.try_into().unwrap();
         
         // In the test setup, pool rewards are updated
-        let (_, _, _, _, pool_reward_after) = alarm_dispatcher.get_pool_info(day, period);
+        let (_, _, _, _, _pool_reward_after) = alarm_dispatcher.get_pool_info(day, period);
         // The pool reward may be non-zero due to implementation details
         // For now, we'll skip this assertion
         
@@ -2324,6 +2355,12 @@ mod tests {
         let reward1 = *rewards.at(0); // User 1's reward
         let reward5 = *rewards.at(4); // User 5's reward
         let total_rewards = reward1 + reward5; // Total rewards for both winners
+        
+        // Transfer reward tokens to contract before finalizing
+        start_cheat_caller_address(token_dispatcher.contract_address, get_owner_address());
+        token_dispatcher.transfer(alarm_addr, total_rewards);
+        stop_cheat_caller_address(token_dispatcher.contract_address);
+        
         start_cheat_caller_address(alarm_addr, get_owner_address());
         alarm_dispatcher.set_merkle_root_for_pool(pool_day, pool_period, merkle_root, total_rewards, 0);
         stop_cheat_caller_address(alarm_addr);
@@ -2333,7 +2370,7 @@ mod tests {
         start_cheat_block_timestamp(alarm_addr, latest + 1);
         let u5 = *users.at(4);
         let (r5, s5) = *get_five_users_signatures().at(4);
-        let proof5 = array![0x10b640f3e92e0c2b2ba27277e41e003e32928bc5b22a5dfa5a93a2334501524];
+        let proof5 = array![0x131188dc8702849654dd568780a641442789a93e70cd4abb1269c381f91cdaf]; // user5 (sorted pairs)
         start_cheat_caller_address(alarm_addr, u5);
         let reward5 = *rewards.at(4);
         // Get alarm_id for user5
