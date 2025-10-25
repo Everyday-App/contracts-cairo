@@ -1,9 +1,9 @@
 {
   "pool_info": {
     "day": "20320",
-    "period": 1,
+    "period": 2,
     "contract_address": "0x0f1E5a19D34FB93648285F28Eb2b4506e6791EB7",
-    "merkle_root": "0x1403dbfd19e5b3679aa7940b772f6f4ad890ad10de72c961e837eb28e07c1fa",
+    "merkle_root": "0x5d357098a2cb091a6f41503fb93c06bd948946226c40ea1a56f67c4b877e03c",
     "total_slashed_amount": "150000000000000000000"
   },
   "protocol_fees": "15000000000000000000",
@@ -11,28 +11,28 @@
   "user_results": [
     {
       "address": "0x068e5011bbef90f8227382ea517277b631339205af237d5e853573248fc726a4",
-      "start_time": "1755709200",
+      "start_time": "1755691200",
       "duration": "3600",
       "stake_amount": "50000000000000000000",
       "completion_status": true,
       "stake_return_amount": "50000000000000000000",
-      "reward_amount": "67500000000000000000",
-      "total_payout": "117500000000000000000",
+      "reward_amount": "54000000000000000000",
+      "total_payout": "104000000000000000000",
       "signature": {
-        "r": "0x56e119700bf5e7c2ff8c7474720927a3a4c69848c6ff88d3a8fa013e4be40d4",
-        "s": "0x37fde5e2cbaf3458eea37667d5803e4f3feaf9aaf751040b9371e0dfe85197b",
-        "message_hash": "0x553825dfde3ab7428513e2cd86801849ad7d87cbdff003846bdcc0a077191e3",
+        "r": "0x440168f810198af2e85f21e21532f64a15394eaf88fd7d32a212d601f98404f",
+        "s": "0x55f4b347e066865916ff5b3097882f0eb441534e070d8da2af586d3ab49b888",
+        "message_hash": "0x6002a59386ffee07df2609feb09ee8446b9a33094ecaedd0c3b6dc9d7782624",
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [
-        "0x34f0ddbc2d9557bb935f8da19d0dd572d5b512017b60edcba0a3dbcd8beeb69"
+        "0x3e1acd662d4c63ee46f5a2e573f14cccebde805d1a35892010fb9edf04be7b4"
       ],
       "is_winner": true,
       "claim_ready": true
     },
     {
       "address": "0x04b30350238863e574f135c84b48f860be87c90afc37843709b4613aab32f018",
-      "start_time": "1755712800",
+      "start_time": "1755694800",
       "duration": "7200",
       "stake_amount": "50000000000000000000",
       "completion_status": false,
@@ -40,9 +40,9 @@
       "reward_amount": "0",
       "total_payout": "0",
       "signature": {
-        "r": "0x14e8e17123aeffe648f3b13a2bf72d9ff3cfca006b21492e0c84a9dd01a041d",
-        "s": "0x4c7a5274dd45beabe94d8a4a54fd9bdd34cdc20f6ebe480fe61b16ae179cdba",
-        "message_hash": "0x56493a8ea63a145c7e9a4abc2df5220cffd9c6ad2a1e0337af962f1573566d9",
+        "r": "0x74821146c321c917bd93fe9c7d5ddfec86531567db3102155dc8529cc6e82e2",
+        "s": "0x527ddb7b6d223e27e76c00d85062899fa328c7d875d87b69eaa5748508972bc",
+        "message_hash": "0x404f8aa5bf6c8daa4fe379d46ee32294282f2917a6715e740e4205a3ce5dd0c",
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [],
@@ -51,7 +51,7 @@
     },
     {
       "address": "0x043abd6f2049a4de67a533068dd90336887eab3786864c50e2b2ca8be17de564",
-      "start_time": "1755716400",
+      "start_time": "1755698400",
       "duration": "1800",
       "stake_amount": "50000000000000000000",
       "completion_status": false,
@@ -59,9 +59,9 @@
       "reward_amount": "0",
       "total_payout": "0",
       "signature": {
-        "r": "0x725b550eae5bd5ae8977c56a72123dbc59a9080ed08992cf066cc7ec2f890f4",
-        "s": "0x549686e8d8eb27852f1d5eb6bc692f481a44277637ed5ad1c61bf3e845f2a1f",
-        "message_hash": "0x1aa4432cea8b9cface4926e6d0356921950827603dd4fcb32f2e592c9a9c6da",
+        "r": "0x6801ddfcd675828e4cecee57a6516b974e9323ca955cd8b06bda60f8e7950d3",
+        "s": "0x53f3276614d019712df009cb5b275407a64683b18fb44e2eb2c217e691c289f",
+        "message_hash": "0x500debb1dc25d08564c32459e73ad4cbc12bbd389e9e7dda08759a998bd3e86",
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [],
@@ -70,28 +70,28 @@
     },
     {
       "address": "0x04e1cd2b21092ceb6999a2480bcc12a8b206867885d14a28aa7a1eb2169b015a",
-      "start_time": "1755720000",
+      "start_time": "1755702000",
       "duration": "5400",
       "stake_amount": "50000000000000000000",
       "completion_status": true,
       "stake_return_amount": "50000000000000000000",
-      "reward_amount": "67500000000000000000",
-      "total_payout": "117500000000000000000",
+      "reward_amount": "81000000000000000000",
+      "total_payout": "131000000000000000000",
       "signature": {
-        "r": "0x1db2f47c0d654b1ca235ae081224a13163d088dc7c2a5f143f28fbd7aac5d2",
-        "s": "0x3a2f6b18ad0dc66a04a1f7e98cb9fad612c1f18485f1b622c04ea46a8a4f71e",
-        "message_hash": "0x5398120972266e25071bcb7f6c94b6f633b02627ef2429e62422b97bba6a634",
+        "r": "0x1a6033a241658f57a21c7b7b03334385713babe849e3cd26fa7db4f1bb09336",
+        "s": "0x474324aace6e56868d1e6fc1b300126ba2896154235c5bee49d006a53897a2d",
+        "message_hash": "0x7bb5e0668f8b702b6ea5b724fa98269b030a2823877026499ec75abd66d32e5",
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [
-        "0x7fe12d65fc2ecb30d4d7cb4d5ec75d47bfcbd4aaa76a7176bbc7aa52c53622f"
+        "0x76b8fbc6e2c6fe62eadd1d56c2fa0d8577bc6d1260f4f507579d6d3f86cbc42"
       ],
       "is_winner": true,
       "claim_ready": true
     },
     {
       "address": "0x07bd8a637e29d94961f31c9561b952069057a5a9cad3179303b9c37710eb2cdd",
-      "start_time": "1755723600",
+      "start_time": "1755705600",
       "duration": "2400",
       "stake_amount": "50000000000000000000",
       "completion_status": false,
@@ -99,9 +99,9 @@
       "reward_amount": "0",
       "total_payout": "0",
       "signature": {
-        "r": "0x49f0e0f9b35e5610060ab308eb97c024110fba338721f08eac832c53669f64e",
-        "s": "0x38f871ee5df635b955c693e33d17eb11d50b65b6f05fb251eb898c6d80013b2",
-        "message_hash": "0x3ee293c7f57b2e48d5bf4956d978a62787d1e2319a1bf53c575cb5336deed51",
+        "r": "0x7ccfa0ca3ddc623784c64e3d6cab277d62f0163eb446c4bfeda947cd232c8de",
+        "s": "0x5b508fcdc9d5479c49af021bdd4a05c0c706102add5aa0ca3b13e8020cc8526",
+        "message_hash": "0x6c59e4aa2846a8b5a1806ae11cd71f8e71adc35ec7b10557d9f08505ff7315",
         "public_key": "0x42f53a290543042b07333f31cf9cc4ad7d3ef0ac2996c2d1af302fdf7ae2fbf"
       },
       "merkle_proof": [],

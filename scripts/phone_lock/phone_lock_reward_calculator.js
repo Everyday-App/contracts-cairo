@@ -274,15 +274,16 @@ class PhoneLockRewardCalculator {
                 const right = (i + 1 < currentLevel.length) ? currentLevel[i + 1] : left;
 
                 // For the proof, the other node's hash is added
-                if (proofs[left.address]) {
-                    proofs[left.address].push(this.toHexString(right.hashBig));
-                }
-                if (right.address !== left.address && proofs[right.address]) {
+                proofs[left.address].push(this.toHexString(right.hashBig));
+                if (right.address !== left.address) {
                     proofs[right.address].push(this.toHexString(left.hashBig));
                 }
 
-                // Compute the hash of the parent node
-                const parentHashBig = hash.computePoseidonHashOnElements([left.hashBig, right.hashBig]);
+                // Compute the hash of the parent node using sorted pairs (OpenZeppelin standard)
+                const [sorted_a, sorted_b] = left.hashBig < right.hashBig 
+                    ? [left.hashBig, right.hashBig] 
+                    : [right.hashBig, left.hashBig];
+                const parentHashBig = hash.computePoseidonHashOnElements([sorted_a, sorted_b]);
                 nextLevel.push({ hashBig: parentHashBig });
             }
             currentLevel = nextLevel;
@@ -293,38 +294,34 @@ class PhoneLockRewardCalculator {
 
 
     /**
-     * Generates ECDSA signatures for each user based on their lock data.
-     * @param {Array<Object>} users - Array of user objects.
-     * @param {string} privateKey - The private key for signing.
-     * @returns {Array<Object>} Array of signature objects.
+     * Creates a cryptographic signature for a user's outcome using a private key.
+     * @param {string} userAddress - The user's wallet address.
+     * @param {string | number | bigint} startTime - The user's start time.
+     * @param {string | number | bigint} duration - The user's lock duration.
+     * @param {boolean} completionStatus - Whether the user completed successfully.
+     * @param {string} privateKey - The verifier's private key.
+     * @returns {Object} An object containing the message hash, signature (r, s), and public key.
      */
-    generateSignatures(users, privateKey) {
+    createOutcomeSignature(userAddress, startTime, duration, completionStatus, privateKey) {
         let normalizedPrivateKey = privateKey;
         if (!normalizedPrivateKey.startsWith('0x')) {
             normalizedPrivateKey = '0x' + normalizedPrivateKey;
         }
-        
-        return users.map(user => {
-            const startTime = this.toBigInt(user.start_time);
-            const duration = this.toBigInt(user.duration);
-            const completionStatus = user.completion_status;
-            
-            // Create message hash: [address, start_time, duration, completion_status]
-            const messageHash = hash.computePoseidonHashOnElements([
-                this.toBigInt(user.address),
-                startTime,
-                duration,
-                completionStatus ? BigInt(1) : BigInt(0)
-            ]);
-            const signature = ec.starkCurve.sign(messageHash, normalizedPrivateKey);
-            
-            return {
-                r: this.toHexString(signature.r),
-                s: this.toHexString(signature.s),
-                message_hash: this.toHexString(messageHash),
-                public_key: this.toHexString(ec.starkCurve.getStarkKey(normalizedPrivateKey))
-            };
-        });
+
+        const callerFelt = this.toBigInt(userAddress);
+        const startFelt = this.toBigInt(startTime);
+        const durationFelt = this.toBigInt(duration);
+        const completionFelt = completionStatus ? BigInt(1) : BigInt(0);
+
+        const messageHash = hash.computePoseidonHashOnElements([callerFelt, startFelt, durationFelt, completionFelt]);
+        const signature = ec.starkCurve.sign(messageHash, normalizedPrivateKey);
+
+        return {
+            message_hash: this.toHexString(messageHash),
+            signature_r: this.toHexString(signature.r),
+            signature_s: this.toHexString(signature.s),
+            public_key: this.toHexString(ec.starkCurve.getStarkKey(normalizedPrivateKey)),
+        };
     }
 
 
@@ -342,6 +339,10 @@ class PhoneLockRewardCalculator {
         // Validate input data
         this.validateUserData(users);
         
+        // Calculate actual pool info from first user's start time
+        const actualPoolInfo = this.calculatePoolFromStartTime(users[0].start_time);
+        console.log(`🏊 Calculated pool: ${actualPoolInfo.poolName} (Day ${actualPoolInfo.day}, Period ${actualPoolInfo.period})`);
+        
         // Calculate protocol fees and rewards
         console.log('💰 Calculating protocol fees and rewards...');
         const feeAndRewardData = this.calculateProtocolFeesAndRewards(users);
@@ -356,13 +357,20 @@ class PhoneLockRewardCalculator {
         // Generate merkle tree with proofs
         const merkleTree = this.generateMerkleTree(leaves);
         
-        // Generate signatures for all users
-        const signatures = this.generateSignatures(users, pool_info.verifier_private_key);
-        
         // Process individual user results
-        const userResults = users.map((user, index) => {
+        const userResults = [];
+        for (const user of users) {
             const stakeReturn = this.calculateStakeReturn(user.stake_amount, user.completion_status);
             const isWinner = user.completion_status === true;
+            
+            // Generate signature for this user
+            const signature = this.createOutcomeSignature(
+                user.address,
+                user.start_time,
+                user.duration,
+                user.completion_status,
+                pool_info.verifier_private_key
+            );
             
             // Find reward amount for winners
             let rewardAmount = BigInt(0);
@@ -378,7 +386,7 @@ class PhoneLockRewardCalculator {
             
             const totalPayout = stakeReturn + rewardAmount;
             
-            return {
+            userResults.push({
                 address: user.address,
                 start_time: user.start_time,
                 duration: user.duration,
@@ -387,18 +395,23 @@ class PhoneLockRewardCalculator {
                 stake_return_amount: stakeReturn.toString(),
                 reward_amount: rewardAmount.toString(),
                 total_payout: totalPayout.toString(),
-                signature: signatures[index],
+                signature: {
+                    r: signature.signature_r,
+                    s: signature.signature_s,
+                    message_hash: signature.message_hash,
+                    public_key: signature.public_key
+                },
                 merkle_proof: merkleProof,
                 is_winner: isWinner,
                 claim_ready: true
-            };
-        });
+            });
+        }
         
-        // Create final output
+        // Create final output using actual calculated pool info
         const output = {
             pool_info: {
-                day: pool_info.day,
-                period: pool_info.period,
+                day: actualPoolInfo.day,
+                period: actualPoolInfo.period,
                 contract_address: pool_info.contract_address,
                 merkle_root: merkleTree.root,
                 total_slashed_amount: feeAndRewardData.newRewardsFromLosers.toString()
@@ -425,7 +438,7 @@ class PhoneLockRewardCalculator {
                 
                 console.log(`  Winner ${index + 1}: ${reward.address.slice(0, 10)}...`);
                 console.log(`    Stake: ${(stake / BigInt(10**18)).toString()} STRK`);
-                console.log(`    Duration: ${(duration / BigInt(3600)).toString()} hours`);
+                console.log(`    Duration: ${(Number(duration) / 3600).toFixed(1)} hours`);
                 console.log(`    Weight: ${weight.toString()} (stake × duration)`);
                 console.log(`    Reward: ${(rewardAmount / BigInt(10**18)).toString()} STRK`);
                 console.log('');
@@ -434,9 +447,7 @@ class PhoneLockRewardCalculator {
             console.log('  No winners found.');
         }
         
-        // Show pool information
-        const poolInfo = this.calculatePoolFromStartTime(users[0].start_time);
-        console.log(`🏊 Pool: ${poolInfo.poolName} (Period ${poolInfo.period})`);
+        console.log(`🏊 Final Pool: ${actualPoolInfo.poolName} (Day ${actualPoolInfo.day}, Period ${actualPoolInfo.period})`);
         
         return output;
     }

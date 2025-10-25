@@ -3,7 +3,7 @@
     "day": "20320",
     "period": 1,
     "contract_address": "0x0f1E5a19D34FB93648285F28Eb2b4506e6791EB7",
-    "merkle_root": "0x4c14b62c2aa6186a0bc68713a50629bb198a94f6402b62b3eb6413c70daf7ba",
+    "merkle_root": "0x33edc6a1238e6f3f5bc9f51bf7979e57a9112d457c5b699e726a04e2ef3e47d",
     "new_rewards_from_losers": "85000000000000000000",
     "existing_pool_reward": "85000000000000000000",
     "total_reward_pool": "170000000000000000000",

@@ -245,8 +245,11 @@ class AlarmRewardCalculator {
                     proofs[right.address].push(this.toHexString(left.hashBig));
                 }
 
-                // Compute the hash of the parent node
-                const parentHashBig = hash.computePoseidonHashOnElements([left.hashBig, right.hashBig]);
+                // Compute the hash of the parent node using sorted pairs (OpenZeppelin standard)
+                const [sorted_a, sorted_b] = left.hashBig < right.hashBig 
+                    ? [left.hashBig, right.hashBig] 
+                    : [right.hashBig, left.hashBig];
+                const parentHashBig = hash.computePoseidonHashOnElements([sorted_a, sorted_b]);
                 nextLevel.push({ hashBig: parentHashBig });
             }
             currentLevel = nextLevel;
