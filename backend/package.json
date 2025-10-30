@@ -1,0 +1,41 @@
+{
+  "name": "alarm-contract-backend",
+  "version": "1.0.0",
+  "description": "Integrated Alarm Contract Backend - Database, Merkle Tree Processing & Blockchain Integration",
+  "main": "alarm_backend.js",
+  "scripts": {
+    "start": "node alarm_backend.js",
+    "process-pool": "node alarm_backend.js",
+    "help": "node alarm_backend.js --help"
+  },
+  "keywords": [
+    "starknet",
+    "blockchain",
+    "alarm",
+    "merkle-tree",
+    "supabase",
+    "avnu",
+    "paymaster"
+  ],
+  "author": "EverydayApp Team",
+  "license": "MIT",
+  "dependencies": {
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.3.1",
+    "starknet": "^7.6.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/flutter-demi"
+  },
+  "bugs": {
+    "url": "https://github.com/your-org/flutter-demi/issues"
+  }
+}
