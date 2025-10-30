@@ -1020,6 +1020,7 @@ async function main() {
         
         day = parseInt(day);
         period = parseInt(period);
+        const force = process.argv.includes('--force') || process.argv.includes('-f') || process.argv.includes('force');
         
         console.log(`🎯 Target Pool: Day ${day}, Period ${period}`);
         
@@ -1029,15 +1030,19 @@ async function main() {
         }
         
         // Finalize only if current time is at least 30 minutes past end of this period (UTC)
-        // Alarm slot size = 43200s (12h). End time = day*86400 + period*43200 + 43200
-        const now = Math.floor(Date.now() / 1000);
-        const slotSize = 43200;
-        const periodEnd = day * 86400 + period * slotSize + slotSize;
-        const bufferSeconds = 1800; // 30 minutes
-        if (now < periodEnd + bufferSeconds) {
-            const delta = periodEnd + bufferSeconds - now;
-            console.log(`⏳ Too early to finalize alarm pool. Eligible in ${delta}s (at ${new Date((periodEnd + bufferSeconds) * 1000).toISOString()})`);
-            return;
+        // Skippable with --force
+        if (!force) {
+            const now = Math.floor(Date.now() / 1000);
+            const slotSize = 43200;
+            const periodEnd = day * 86400 + period * slotSize + slotSize;
+            const bufferSeconds = 1800; // 30 minutes
+            if (now < periodEnd + bufferSeconds) {
+                const delta = periodEnd + bufferSeconds - now;
+                console.log(`⏳ Too early to finalize alarm pool. Eligible in ${delta}s (at ${new Date((periodEnd + bufferSeconds) * 1000).toISOString()})`);
+                return;
+            }
+        } else {
+            console.log('⚠️ Forcing finalization (buffer check bypassed)');
         }
         
         // Process the pool

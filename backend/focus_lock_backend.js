@@ -331,11 +331,13 @@ class FocusLockContractBackend {
                 
                 const userData = {
                     address: walletAddress,
-                    start_time: lock.start_time.toString(),
-                    duration: duration.toString(),
+                    start_time: lock.start_time.toString(), // may be refined using on-chain values
+                    duration: duration.toString(),           // may be refined using on-chain values
                     stake_amount: lock.stake_amount.toString(),
                     completion_status: lock.completion_status !== null ? lock.completion_status : false,
-                    lock_id: lock.id // Keep lock ID for database updates
+                    // Keep both identifiers: UUID (focus_locks.id) and on-chain int lock_id
+                    focus_lock_id: lock.id,
+                    lock_id: lock.lock_id ?? null
                 };
                 
                 console.log(`   👤 User: ${userData.address}`);
@@ -653,11 +655,34 @@ class FocusLockContractBackend {
                 // All users have merkle proofs
                 const merkleProof = merkleTree.proofs[user.address] || [];
                 
-                // Generate signature for this user
+                // Prefer on-chain lock start_time/duration (exact) if lock_id is available
+                let sigStartTime = user.start_time;
+                let sigDuration = user.duration;
+                try {
+                    if (user.lock_id != null) {
+                        const timeLockContractAddress = process.env.TIME_LOCK_CONTRACT_ADDRESS;
+                        const res = await this.provider.callContract({
+                            contractAddress: timeLockContractAddress,
+                            entrypoint: 'get_user_lock',
+                            calldata: [user.address, String(user.lock_id)]
+                        });
+                        const arr = res.result || res;
+                        if (Array.isArray(arr) && arr.length >= 6) {
+                            // arr: [stake_low, stake_high, start_time, duration, end_time, status]
+                            sigStartTime = String(BigInt(arr[2]));
+                            sigDuration = String(BigInt(arr[3]));
+                            console.log(`   🔎 On-chain lock params: start=${sigStartTime} duration=${sigDuration}`);
+                        }
+                    }
+                } catch (e) {
+                    console.log(`   ⚠️ Could not fetch on-chain lock params, using DB values: ${e.message || e}`);
+                }
+
+                // Generate signature for this user (must match on-chain lock values)
                 const signature = this.createOutcomeSignature(
                     user.address,
-                    user.start_time,
-                    user.duration,
+                    sigStartTime,
+                    sigDuration,
                     user.completion_status,
                     verifierPrivateKey
                 );
@@ -669,17 +694,17 @@ class FocusLockContractBackend {
                 console.log(`   🔄 Stake Return: ${stakeReturn.toString()}`);
                 console.log(`   🏆 Is Winner: ${user.completion_status}`);
                 
-                // Prepare focus_locks table update
+                // Prepare focus_locks table update (by UUID)
                 lockUpdates.push({
-                    id: user.lock_id,
+                    id: user.focus_lock_id,
                     claim_ready: true,
                     has_claimed: false
                 });
                 
-                // Prepare claim data insert (focus_lock_id is the uuid from focus_locks.id)
+                // Prepare claim data insert; include both identifiers
                 claimDataInserts.push({
-                    
-                    focus_lock_id: user.lock_id, // uuid from focus_locks.id
+                    focus_lock_id: user.focus_lock_id, // uuid from focus_locks.id
+                    lock_id: user.lock_id,             // on-chain int (nullable until set)
                     signature_r: signature.signature_r,
                     signature_s: signature.signature_s,
                     message_hash: signature.message_hash,
@@ -939,7 +964,7 @@ async function main() {
         }
         
         // Single pool mode
-        if (!day || !period || day === 'auto' || day === 'latest') {
+        if (!day || !period || day === 'auto' || day === 'latest' || day === 'current') {
             if (day === 'auto' || day === 'latest') {
                 // Find latest pool with locks
                 console.log('🔍 Auto-detecting latest pool with focus locks...');
@@ -955,6 +980,13 @@ async function main() {
                     day = poolInfo.day;
                     period = poolInfo.period;
                 }
+            } else if (day === 'current') {
+                // Explicit current mode
+                const currentTime = Math.floor(Date.now() / 1000);
+                const poolInfo = backend.getPoolInfo(currentTime);
+                day = poolInfo.day;
+                period = poolInfo.period;
+                console.log('🕒 Current mode: using current time pool');
             } else {
                 // Use current time to determine pool if not specified
                 const currentTime = Math.floor(Date.now() / 1000);
@@ -967,6 +999,7 @@ async function main() {
         
         day = parseInt(day);
         period = parseInt(period);
+        const force = process.argv.includes('--force') || process.argv.includes('-f') || process.argv.includes('force');
         
         console.log(`🎯 Target Pool: Day ${day}, Period ${period}`);
         
@@ -975,18 +1008,22 @@ async function main() {
             throw new Error('Invalid day/period. Period must be 0-3 for 6-hour periods');
         }
         
-        // Guard: only finalize when current UTC time is past end_time + buffer (30 min)
+        // Guard (skippable with --force): only finalize when current UTC time is past end_time + buffer (30 min)
         // For focus locks, slot size = 21600s (6 hours)
-        const now = Math.floor(Date.now() / 1000);
-        const slotSize = 21600; // 6h
-        const periodStart = (day * 86400) + (period * slotSize);
-        const periodEnd = periodStart + slotSize;
-        const finalizeBuffer = 1800; // 30 minutes
-        const eligibleAt = periodEnd + finalizeBuffer;
-        console.log(`⏱️ Time check: now=${now} eligibleAt=${eligibleAt} (end=${periodEnd} + buffer=${finalizeBuffer})`);
-        if (now < eligibleAt) {
-            console.log('⏳ Too early to finalize current focus lock pool. Skipping this run.');
-            return;
+        if (!force) {
+            const now = Math.floor(Date.now() / 1000);
+            const slotSize = 21600; // 6h
+            const periodStart = (day * 86400) + (period * slotSize);
+            const periodEnd = periodStart + slotSize;
+            const finalizeBuffer = 1800; // 30 minutes
+            const eligibleAt = periodEnd + finalizeBuffer;
+            console.log(`⏱️ Time check: now=${now} eligibleAt=${eligibleAt} (end=${periodEnd} + buffer=${finalizeBuffer})`);
+            if (now < eligibleAt) {
+                console.log('⏳ Too early to finalize current focus lock pool. Skipping this run.');
+                return;
+            }
+        } else {
+            console.log('⚠️ Forcing finalization (buffer check bypassed)');
         }
         
         // Process the pool
