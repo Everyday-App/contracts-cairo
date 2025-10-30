@@ -1028,6 +1028,18 @@ async function main() {
             throw new Error('Invalid day/period. Period must be 0 (AM) or 1 (PM)');
         }
         
+        // Finalize only if current time is at least 30 minutes past end of this period (UTC)
+        // Alarm slot size = 43200s (12h). End time = day*86400 + period*43200 + 43200
+        const now = Math.floor(Date.now() / 1000);
+        const slotSize = 43200;
+        const periodEnd = day * 86400 + period * slotSize + slotSize;
+        const bufferSeconds = 1800; // 30 minutes
+        if (now < periodEnd + bufferSeconds) {
+            const delta = periodEnd + bufferSeconds - now;
+            console.log(`⏳ Too early to finalize alarm pool. Eligible in ${delta}s (at ${new Date((periodEnd + bufferSeconds) * 1000).toISOString()})`);
+            return;
+        }
+        
         // Process the pool
         const results = await backend.processAlarmPool(day, period);
         

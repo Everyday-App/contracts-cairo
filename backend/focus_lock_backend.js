@@ -546,14 +546,24 @@ class FocusLockContractBackend {
         return { root: this.toHexString(currentLevel[0].hashBig), proofs };
     }
 
+    // Helper to split u256 to Cairo format
+    toU256Parts(val) {
+        const n = BigInt(val);
+        const low = n & ((1n << 128n) - 1n);
+        const high = n >> 128n;
+        return [low.toString(), high.toString()];
+    }
+
     /**
      * Set merkle root on-chain using AVNU sponsored transaction
      */
-    async setMerkleRootOnChain(day, period, merkleRoot) {
+    async setMerkleRootOnChain(day, period, merkleRoot, newRewards, protocolFees) {
         try {
             console.log(`🚀 ========== SETTING MERKLE ROOT ON-CHAIN ==========`);
             console.log(`📊 Pool: Day ${day}, Period ${period}`);
             console.log(`🌳 Merkle Root: ${merkleRoot}`);
+            console.log(`🏦 newRewards: ${newRewards}`);
+            console.log(`💸 protocolFees: ${protocolFees}`);
             
             const timeLockContractAddress = process.env.TIME_LOCK_CONTRACT_ADDRESS;
             if (!timeLockContractAddress) {
@@ -569,7 +579,9 @@ class FocusLockContractBackend {
                 calldata: [
                     day.toString(),
                     period.toString(),
-                    merkleRoot
+                    merkleRoot,
+                    ...this.toU256Parts(newRewards),
+                    ...this.toU256Parts(protocolFees)
                 ]
             }];
             
@@ -578,6 +590,8 @@ class FocusLockContractBackend {
             console.log(`   Day: ${day}`);
             console.log(`   Period: ${period}`);
             console.log(`   Merkle Root: ${merkleRoot}`);
+            console.log(`   newRewards: ${newRewards}`);
+            console.log(`   protocolFees: ${protocolFees}`);
             
             // Execute transaction (sponsored or regular)
             let result;
@@ -662,13 +676,14 @@ class FocusLockContractBackend {
                     has_claimed: false
                 });
                 
-                // Prepare claim data insert
+                // Prepare claim data insert (focus_lock_id is the uuid from focus_locks.id)
                 claimDataInserts.push({
-                    lock_id: user.lock_id,
+                    
+                    focus_lock_id: user.lock_id, // uuid from focus_locks.id
                     signature_r: signature.signature_r,
                     signature_s: signature.signature_s,
                     message_hash: signature.message_hash,
-                    reward_amount: rewardAmount,
+                    reward_amount: rewardAmount.toString(), // Ensure string format for DB
                     merkle_proof: JSON.stringify(merkleProof),
                     processed_at: new Date().toISOString()
                 });
@@ -742,6 +757,10 @@ class FocusLockContractBackend {
             console.log(`🏆 Winners: ${rewards.length}`);
             console.log(`💸 Total Slashed: ${totalSlashed.toString()}`);
             
+            // Calculate protocol fee (10%) and remainder is new_rewards
+            const protocolFee = (totalSlashed * 10n) / 100n;
+            const newRewards = totalSlashed - protocolFee;
+
             // Step 4: Build merkle tree
             console.log(`\n🌳 STEP 4: BUILDING MERKLE TREE`);
             
@@ -763,7 +782,7 @@ class FocusLockContractBackend {
             console.log(`\n⛓️ STEP 5: SETTING MERKLE ROOT ON-CHAIN`);
             let txHash = null;
             try {
-                txHash = await this.setMerkleRootOnChain(day, period, merkleTree.root);
+                txHash = await this.setMerkleRootOnChain(day, period, merkleTree.root, newRewards, protocolFee);
                 console.log(`✅ Merkle root set on-chain - TX: ${txHash}`);
             } catch (error) {
                 console.error(`❌ CRITICAL: Blockchain transaction failed`);
@@ -820,6 +839,27 @@ class FocusLockContractBackend {
     }
 }
 
+// Add this helper just before main():
+async function getAllDayPeriodsWithLocks(supabase) {
+    const { data: locks, error } = await supabase
+        .from('focus_locks')
+        .select('day, period')
+        .neq('claim_ready', true);
+
+    if (error) throw new Error('Failed to fetch focus locks: ' + error.message);
+    if (!locks) return [];
+    const seen = new Set();
+    const dayPeriods = [];
+    for (const l of locks) {
+        const key = `${l.day}_${l.period}`;
+        if (!seen.has(key)) {
+            seen.add(key);
+            dayPeriods.push({ day: l.day, period: l.period });
+        }
+    }
+    return dayPeriods;
+}
+
 // Main runner function - Integrated Database & Blockchain Processing
 async function main() {
     console.log('🏗️ ========== FOCUS LOCK BACKEND PROCESSOR ==========');
@@ -837,68 +877,63 @@ async function main() {
         
         // Check for "process-all" mode
         if (day === 'process-all') {
-            console.log('🔄 ========== PROCESS ALL UNPROCESSED POOLS MODE ==========');
-            
-            // Find all unprocessed pools
-            const unprocessedPools = await backend.findAllUnprocessedPools();
-            
-            if (unprocessedPools.length === 0) {
+            console.log('🔄 ========== PROCESS ALL POOLS MODE (DYNAMIC) ==========');
+
+            // Get all unique (day, period) pairs present in the DB that need processing
+            const allPools = await getAllDayPeriodsWithLocks(backend.supabase);
+
+            if (allPools.length === 0) {
                 console.log('🎉 All pools are already processed! Nothing to do.');
                 return;
             }
-            
-            console.log(`\n🚀 Will process ${unprocessedPools.length} pools...\n`);
-            
-            // Process each pool
+
+            console.log(`\n🚀 Will process ${allPools.length} pools...\n`);
+
             let successCount = 0;
             let failCount = 0;
             const failedPools = [];
-            
-            for (let i = 0; i < unprocessedPools.length; i++) {
-                const pool = unprocessedPools[i];
-                
+
+            for (let i = 0; i < allPools.length; i++) {
+                const pool = allPools[i];
+
                 console.log('\n======================================================================');
-                console.log(`📊 Processing Pool ${i + 1}/${unprocessedPools.length}: Day ${pool.day}, Period ${pool.period}`);
+                console.log(`📊 Processing Pool ${i + 1}/${allPools.length}: Day ${pool.day}, Period ${pool.period}`);
                 console.log('======================================================================\n');
-                
+
                 try {
                     const results = await backend.processFocusLockPool(pool.day, pool.period);
-                    
                     if (results.success) {
                         successCount++;
-                        console.log(`✅ Pool ${i + 1}/${unprocessedPools.length} processed successfully\n`);
+                        console.log(`✅ Pool ${i + 1}/${allPools.length} processed successfully\n`);
                     } else {
                         failCount++;
                         failedPools.push({ ...pool, reason: results.message });
-                        console.log(`⚠️ Pool ${i + 1}/${unprocessedPools.length} skipped: ${results.message}\n`);
+                        console.log(`⚠️ Pool ${i + 1}/${allPools.length} skipped: ${results.message}\n`);
                     }
                 } catch (error) {
                     failCount++;
                     failedPools.push({ ...pool, reason: error.message });
-                    console.error(`❌ Pool ${i + 1}/${unprocessedPools.length} failed: ${error.message}\n`);
-                    // Continue with next pool instead of crashing
+                    console.error(`❌ Pool ${i + 1}/${allPools.length} failed: ${error.message}\n`);
                 }
-                
-                // Add a small delay between processing pools to avoid rate limiting
-                if (i < unprocessedPools.length - 1) {
+
+                if (i < allPools.length - 1) {
                     console.log('⏳ Waiting 2 seconds before next pool...\n');
                     await new Promise(resolve => setTimeout(resolve, 2000));
                 }
             }
-            
-            // Final summary
+
             console.log('\n🎉 ========== BATCH PROCESSING COMPLETE ==========');
-            console.log(`📊 Total Pools: ${unprocessedPools.length}`);
+            console.log(`📊 Total Pools: ${allPools.length}`);
             console.log(`✅ Successfully Processed: ${successCount}`);
             console.log(`❌ Failed/Skipped: ${failCount}`);
-            
+
             if (failedPools.length > 0) {
                 console.log('\n⚠️ Failed/Skipped Pools:');
                 failedPools.forEach(pool => {
                     console.log(`   Day ${pool.day}, Period ${pool.period}: ${pool.reason}`);
                 });
             }
-            
+
             console.log('================================================\n');
             return;
         }
@@ -938,6 +973,20 @@ async function main() {
         // Validate inputs
         if (isNaN(day) || isNaN(period) || period < 0 || period > 3) {
             throw new Error('Invalid day/period. Period must be 0-3 for 6-hour periods');
+        }
+        
+        // Guard: only finalize when current UTC time is past end_time + buffer (30 min)
+        // For focus locks, slot size = 21600s (6 hours)
+        const now = Math.floor(Date.now() / 1000);
+        const slotSize = 21600; // 6h
+        const periodStart = (day * 86400) + (period * slotSize);
+        const periodEnd = periodStart + slotSize;
+        const finalizeBuffer = 1800; // 30 minutes
+        const eligibleAt = periodEnd + finalizeBuffer;
+        console.log(`⏱️ Time check: now=${now} eligibleAt=${eligibleAt} (end=${periodEnd} + buffer=${finalizeBuffer})`);
+        if (now < eligibleAt) {
+            console.log('⏳ Too early to finalize current focus lock pool. Skipping this run.');
+            return;
         }
         
         // Process the pool
