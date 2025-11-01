@@ -361,6 +361,18 @@ class AlarmContractBackend {
     }
 
     /**
+     * Helper to split u256 to Cairo format (low, high)
+     * @param {string | number | bigint} val - The u256 value
+     * @returns {Array<string>} [low, high] as strings
+     */
+    toU256Parts(val) {
+        const n = BigInt(val);
+        const low = n & ((1n << 128n) - 1n);
+        const high = n >> 128n;
+        return [low.toString(), high.toString()];
+    }
+
+    /**
      * Calculates the amount of stake a user gets back based on their snooze count.
      * @param {bigint | string} stakeAmount - The user's initial stake.
      * @param {number} snoozeCount - The number of times the user snoozed.
@@ -397,14 +409,21 @@ class AlarmContractBackend {
 
     /**
      * Calculates the rewards for winning users (who didn't snooze).
-     * Rewards are distributed proportionally to their stake from the total slashed amount.
+     * Rewards are distributed proportionally to their stake from the reward pool amount.
      * @param {Array<Object>} users - A list of all user objects.
+     * @param {bigint} rewardPool - The total reward pool to distribute (after protocol fees).
      * @returns {Array<Object>} An array of winner objects with their address and reward amount.
      */
-    calculateRewards(users) {
+    calculateRewards(users, rewardPool = null) {
         const winners = users.filter(u => Number(u.snooze_count) === 0);
-        const totalSlashed = this.calculateTotalSlashedAmount(users);
-        if (winners.length === 0 || totalSlashed === BigInt(0)) {
+        
+        // If rewardPool not provided, use total slashed (backward compatibility)
+        let poolAmount = rewardPool;
+        if (poolAmount === null) {
+            poolAmount = this.calculateTotalSlashedAmount(users);
+        }
+        
+        if (winners.length === 0 || poolAmount === BigInt(0)) {
             return [];
         }
 
@@ -415,7 +434,7 @@ class AlarmContractBackend {
 
         return winners.map(winner => {
             const winnerStake = this.toBigInt(winner.stake_amount);
-            const proportionalReward = (totalSlashed * winnerStake) / totalWinnerStake;
+            const proportionalReward = (poolAmount * winnerStake) / totalWinnerStake;
             return {
                 address: winner.address,
                 reward_amount: proportionalReward.toString()
@@ -500,13 +519,17 @@ class AlarmContractBackend {
      * @param {number} day - Unix day
      * @param {number} period - 0=AM, 1=PM
      * @param {string} merkleRoot - Merkle root hash
+     * @param {bigint | string} newRewards - Total new rewards from slashed amounts (u256)
+     * @param {bigint | string} protocolFees - Protocol fees (10% of total rewards, u256)
      * @returns {Promise<string>} Transaction hash
      */
-    async setMerkleRootOnChain(day, period, merkleRoot) {
+    async setMerkleRootOnChain(day, period, merkleRoot, newRewards, protocolFees) {
         try {
             console.log(`🚀 ========== SETTING MERKLE ROOT ON-CHAIN ==========`);
             console.log(`📊 Pool: Day ${day}, Period ${period}`);
             console.log(`🌳 Merkle Root: ${merkleRoot}`);
+            console.log(`💰 New Rewards: ${newRewards.toString()}`);
+            console.log(`💼 Protocol Fees: ${protocolFees.toString()}`);
             
             const alarmContractAddress = process.env.ALARM_CONTRACT_ADDRESS_STRK;
             if (!alarmContractAddress) {
@@ -515,26 +538,36 @@ class AlarmContractBackend {
             
             console.log(`📋 Contract Address: ${alarmContractAddress}`);
             
+            // Split u256 values into low/high parts
+            const newRewardsParts = this.toU256Parts(newRewards);
+            const protocolFeesParts = this.toU256Parts(protocolFees);
+            
             // Prepare contract call
             const calls = [{
                 contractAddress: alarmContractAddress,
-                entrypoint: 'set_reward_merkle_root',
+                entrypoint: 'set_merkle_root_for_pool',
                 calldata: [
                     day.toString(),           // day as u64
                     period.toString(),       // period as u8 (0=AM, 1=PM)
-                    merkleRoot               // reward_merkle_root as felt252
+                    merkleRoot,              // merkle_root as felt252
+                    ...newRewardsParts,      // new_rewards as u256 (low, high)
+                    ...protocolFeesParts     // protocol_fees as u256 (low, high)
                 ]
             }];
             
             console.log(`🔨 Contract Call Prepared:`);
-            console.log(`   Function: set_reward_merkle_root`);
+            console.log(`   Function: set_merkle_root_for_pool`);
             console.log(`   Day: ${day} (type: ${typeof day})`);
             console.log(`   Period: ${period} (type: ${typeof period})`);
             console.log(`   Merkle Root: ${merkleRoot} (type: ${typeof merkleRoot})`);
+            console.log(`   New Rewards: ${newRewards.toString()} (u256: low=${newRewardsParts[0]}, high=${newRewardsParts[1]})`);
+            console.log(`   Protocol Fees: ${protocolFees.toString()} (u256: low=${protocolFeesParts[0]}, high=${protocolFeesParts[1]})`);
             console.log(`🔍 Debug - Call Data:`);
             console.log(`   Day string: '${day.toString()}'`);
             console.log(`   Period string: '${period.toString()}'`);
             console.log(`   Merkle Root: '${merkleRoot}'`);
+            console.log(`   New Rewards (low, high): '${newRewardsParts[0]}', '${newRewardsParts[1]}'`);
+            console.log(`   Protocol Fees (low, high): '${protocolFeesParts[0]}', '${protocolFeesParts[1]}'`);
             
             // Execute transaction (sponsored or regular)
             let result;
@@ -598,13 +631,18 @@ class AlarmContractBackend {
                     
                     console.log(`🔍 Raw pool info response:`, poolInfo);
                     
-                    // Handle both old and new response formats
+                    // New response format: (felt252, bool, u256, u64, u256)
+                    // which is: (merkle_root, is_finalized, pool_reward, user_count, total_staked)
                     const resultArray = poolInfo.result || poolInfo;
                     const onChainMerkleRoot = this.toHexString(resultArray[0]);
+                    const isFinalized = resultArray[1] === true || resultArray[1] === 'true' || resultArray[1] === 1;
+                    // resultArray[2] and resultArray[4] are u256 (split into low/high), but we only need merkle root
+                    
                     const expectedMerkleRoot = merkleRoot.toLowerCase();
                     
                     console.log(`📊 On-chain merkle root: ${onChainMerkleRoot}`);
                     console.log(`📊 Expected merkle root: ${expectedMerkleRoot}`);
+                    console.log(`📊 Pool finalized status: ${isFinalized}`);
                     
                     if (onChainMerkleRoot === expectedMerkleRoot) {
                         console.log(`🎉 ========== MERKLE ROOT SET SUCCESSFULLY ==========`);
@@ -805,11 +843,21 @@ class AlarmContractBackend {
             
             // Step 3: Calculate rewards and slashed amounts
             console.log(`\n💰 STEP 3: CALCULATING REWARDS`);
-            const rewards = this.calculateRewards(users);
             const totalSlashed = this.calculateTotalSlashedAmount(users);
+            
+            // Calculate protocol fees (10% of total slashed amount)
+            const PROTOCOL_FEE_PERCENT = BigInt(10);
+            const PERCENT_BASE = BigInt(100);
+            const protocolFees = (totalSlashed * PROTOCOL_FEE_PERCENT) / PERCENT_BASE;
+            const newRewards = totalSlashed - protocolFees; // 90% goes to winners
+            
+            // Calculate rewards from newRewards pool (after protocol fees)
+            const rewards = this.calculateRewards(users, newRewards);
             
             console.log(`🏆 Winners: ${rewards.length}`);
             console.log(`💸 Total Slashed: ${totalSlashed.toString()}`);
+            console.log(`💰 New Rewards (90%): ${newRewards.toString()}`);
+            console.log(`💼 Protocol Fees (10%): ${protocolFees.toString()}`);
             
             // Step 4: Build merkle tree
             console.log(`\n🌳 STEP 4: BUILDING MERKLE TREE`);
@@ -838,7 +886,7 @@ class AlarmContractBackend {
             console.log(`\n⛓️ STEP 5: SETTING MERKLE ROOT ON-CHAIN`);
             let txHash = null;
             try {
-                txHash = await this.setMerkleRootOnChain(day, period, merkleTree.root);
+                txHash = await this.setMerkleRootOnChain(day, period, merkleTree.root, newRewards, protocolFees);
                 console.log(`✅ Merkle root set on-chain - TX: ${txHash}`);
             } catch (error) {
                 console.error(`❌ CRITICAL: Blockchain transaction failed - CANNOT store to database`);
@@ -864,6 +912,8 @@ class AlarmContractBackend {
             console.log(`👥 Total Users: ${users.length}`);
             console.log(`🏆 Winners: ${rewards.length}`);
             console.log(`💸 Total Slashed: ${totalSlashed.toString()}`);
+            console.log(`💰 New Rewards: ${newRewards.toString()}`);
+            console.log(`💼 Protocol Fees: ${protocolFees.toString()}`);
             console.log(`🌳 Merkle Root: ${merkleTree.root}`);
             console.log(`📋 Transaction Hash: ${txHash}`);
             console.log(`🕐 Completed At: ${new Date()}`);
