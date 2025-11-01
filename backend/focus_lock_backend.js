@@ -412,7 +412,21 @@ class FocusLockContractBackend {
     }
 
     /**
+     * Calculates the weighted score for a user based on stake amount and duration.
+     * Higher stake and longer duration result in higher weight.
+     * @param {bigint} stakeAmount - The user's stake amount.
+     * @param {bigint} duration - The user's lock duration in seconds.
+     * @returns {bigint} The weighted score for this user.
+     */
+    calculateUserWeight(stakeAmount, duration) {
+        // Weight = stake_amount * duration
+        // This gives more weight to users who stake more AND lock for longer
+        return stakeAmount * duration;
+    }
+
+    /**
      * Calculates the rewards for winning users (who completed their locks successfully).
+     * Rewards are distributed proportionally based on weighted scores (stake * duration).
      */
     calculateRewards(users) {
         const winners = users.filter(u => u.completion_status === true);
@@ -429,17 +443,36 @@ class FocusLockContractBackend {
             return [];
         }
 
-        const totalWinnerStake = winners.reduce((sum, w) => sum + this.toBigInt(w.stake_amount), BigInt(0));
-        if (totalWinnerStake === BigInt(0)) {
+        // Calculate weighted scores for all winners
+        const winnersWithWeights = winners.map(winner => {
+            const stakeAmount = this.toBigInt(winner.stake_amount);
+            const duration = this.toBigInt(winner.duration);
+            const weight = this.calculateUserWeight(stakeAmount, duration);
+            
+            return {
+                ...winner,
+                weight: weight
+            };
+        });
+
+        const totalWinnerWeight = winnersWithWeights.reduce((sum, w) => sum + w.weight, BigInt(0));
+        if (totalWinnerWeight === BigInt(0)) {
             return [];
         }
 
-        return winners.map(winner => {
-            const winnerStake = this.toBigInt(winner.stake_amount);
-            const proportionalReward = (totalSlashed * winnerStake) / totalWinnerStake;
+        // Calculate protocol fee (10%) and rewards for winners (90%)
+        const protocolFee = (totalSlashed * 10n) / 100n;
+        const rewardsForWinners = totalSlashed - protocolFee;
+
+        return winnersWithWeights.map(winner => {
+            // Distribute rewards based on weighted score (stake * duration)
+            const proportionalReward = (rewardsForWinners * winner.weight) / totalWinnerWeight;
             return {
                 address: winner.address,
-                reward_amount: proportionalReward.toString()
+                reward_amount: proportionalReward.toString(),
+                weight: winner.weight.toString(),
+                stake_amount: winner.stake_amount,
+                duration: winner.duration
             };
         });
     }
@@ -775,7 +808,7 @@ class FocusLockContractBackend {
             console.log(`✅ All user data validated successfully`);
             
             // Step 3: Calculate rewards and slashed amounts
-            console.log(`\n💰 STEP 3: CALCULATING REWARDS`);
+            console.log(`\n💰 STEP 3: CALCULATING REWARDS (WEIGHTED BY STAKE × DURATION)`);
             const rewards = this.calculateRewards(users);
             const totalSlashed = this.calculateTotalSlashedAmount(users);
             
@@ -785,6 +818,29 @@ class FocusLockContractBackend {
             // Calculate protocol fee (10%) and remainder is new_rewards
             const protocolFee = (totalSlashed * 10n) / 100n;
             const newRewards = totalSlashed - protocolFee;
+            
+            console.log(`💰 Protocol fees (10%): ${protocolFee.toString()} wei`);
+            console.log(`🎁 Rewards for winners (90%): ${newRewards.toString()} wei`);
+            
+            // Show weighted distribution details
+            console.log(`\n⚖️ Weighted Distribution Details:`);
+            if (rewards && rewards.length > 0) {
+                rewards.forEach((reward, index) => {
+                    const weight = BigInt(reward.weight);
+                    const stake = BigInt(reward.stake_amount);
+                    const duration = BigInt(reward.duration);
+                    const rewardAmount = BigInt(reward.reward_amount);
+                    
+                    console.log(`  Winner ${index + 1}: ${reward.address.slice(0, 10)}...`);
+                    console.log(`    Stake: ${(stake / BigInt(10**18)).toString()} STRK`);
+                    console.log(`    Duration: ${(Number(duration) / 3600).toFixed(1)} hours`);
+                    console.log(`    Weight: ${weight.toString()} (stake × duration)`);
+                    console.log(`    Reward: ${(rewardAmount / BigInt(10**18)).toString()} STRK`);
+                    console.log('');
+                });
+            } else {
+                console.log('  No winners found.');
+            }
 
             // Step 4: Build merkle tree
             console.log(`\n🌳 STEP 4: BUILDING MERKLE TREE`);
